@@ -562,6 +562,11 @@ function loadState() {
         }];
       }
 
+      // Garante que o perfil padrão (@leitoracriativa) nunca suma do diretório público
+      if (!accounts.some((a) => normalizeUsername(a.profile?.username) === 'leitoracriativa')) {
+        accounts.unshift(createDemoAccount());
+      }
+
       const activeUsername = normalizeUsername(parsed.activePublicUsername || parsed.profile?.username) || accounts[0].profile.username;
       const activeAcc = accounts.find((a) => normalizeUsername(a.profile.username) === activeUsername) || accounts[0];
 
@@ -893,62 +898,56 @@ window.pullFromSupabase = async function ({ silent = false, targetUsername = nul
       targetUsername || getRequestedUsernameFromUrl() || authSession?.username || appState.activePublicUsername
     );
 
-    let profiles = [];
-    if (desiredUser) {
-      profiles = await supabaseFetch(
-        `profile_settings?username=eq.${encodeURIComponent(desiredUser)}&select=*`,
-        { useUserToken: false }
-      );
-    }
-    if (!Array.isArray(profiles) || profiles.length === 0) {
-      profiles = await supabaseFetch(
-        'profile_settings?select=*&order=updated_at.desc&limit=1',
-        { useUserToken: false }
-      );
-    }
+    const [profiles, allBooks, allComments] = await Promise.all([
+      supabaseFetch('profile_settings?select=*&order=updated_at.asc', { useUserToken: false }),
+      supabaseFetch('books?select=*&order=created_at.desc', { useUserToken: false }),
+      supabaseFetch('comments?select=*&order=created_at.desc', { useUserToken: false })
+    ]);
 
-    if (Array.isArray(profiles) && profiles[0]) {
-      const p = profiles[0];
-      const loadedProfile = sanitizeProfile({
-        name: p.name,
-        username: p.username,
-        bio: p.bio,
-        avatarUrl: p.avatar_url,
-        instagramUrl: p.instagram_url
+    const booksRows = Array.isArray(allBooks) ? allBooks : [];
+    const commentsRows = Array.isArray(allComments) ? allComments : [];
+
+    if (Array.isArray(profiles) && profiles.length > 0) {
+      const dbAccounts = profiles.map((p) => {
+        const userBooks = booksRows.filter((b) => b.user_id === p.id).map(fromDbBook);
+        return {
+          userId: p.id,
+          email: '',
+          password: '',
+          profile: sanitizeProfile({
+            name: p.name,
+            username: p.username,
+            bio: p.bio,
+            avatarUrl: p.avatar_url,
+            instagramUrl: p.instagram_url
+          }),
+          clubs: Array.isArray(p.clubs) ? p.clubs : [],
+          books: userBooks
+        };
       });
 
-      const books = await supabaseFetch(
-        `books?user_id=eq.${encodeURIComponent(p.id)}&select=*&order=created_at.desc`,
-        { useUserToken: false }
-      );
-
-      const loadedBooks = Array.isArray(books) ? books.map(fromDbBook) : [];
-      let loadedComments = [];
-      if (loadedBooks.length > 0) {
-        const idsFilter = loadedBooks.map((b) => encodeURIComponent(b.id)).join(',');
-        const comments = await supabaseFetch(
-          `comments?book_id=in.(${idsFilter})&select=*&order=created_at.desc`,
-          { useUserToken: false }
-        );
-        if (Array.isArray(comments)) {
-          loadedComments = comments.map(fromDbComment);
-        }
+      // Mantém o perfil padrão (@leitoracriativa) disponível na listagem caso não esteja no banco
+      if (!dbAccounts.some((a) => normalizeUsername(a.profile?.username) === 'leitoracriativa')) {
+        dbAccounts.unshift(createDemoAccount());
       }
 
-      appState.profile = loadedProfile;
-      appState.activePublicUsername = loadedProfile.username;
-      appState.clubs = Array.isArray(p.clubs) ? p.clubs : [];
-      appState.books = loadedBooks;
+      appState.accounts = dbAccounts;
 
-      // Mescla comentários da estante carregada sem perder outros locais
-      const otherComments = (appState.comments || []).filter(
-        (c) => !loadedBooks.some((b) => b.id === c.bookId)
-      );
-      appState.comments = [...loadedComments, ...otherComments];
+      const selectedAcc =
+        (desiredUser && dbAccounts.find((a) => normalizeUsername(a.profile.username) === desiredUser)) ||
+        dbAccounts.find((a) => a.userId !== DEMO_USER_ID) ||
+        dbAccounts[0];
+
+      loadAccountIntoWorkingState(selectedAcc);
+
+      const loadedComments = commentsRows.map(fromDbComment);
+      const loadedCommentIds = new Set(loadedComments.map((c) => c.id));
+      const localOnlyComments = (appState.comments || []).filter((c) => !loadedCommentIds.has(c.id));
+      appState.comments = [...loadedComments, ...localOnlyComments];
 
       saveState();
       renderAll();
-      if (!silent) showToast(`Estante @${loadedProfile.username} carregada do Supabase!`, '☁️');
+      if (!silent) showToast(`Estante @${selectedAcc.profile.username} carregada do Supabase!`, '☁️');
     } else if (!silent) {
       showToast('Nenhum perfil encontrado no Supabase ainda.', 'ℹ️');
     }
@@ -1663,7 +1662,83 @@ function getCommentsCountForBook(bookId) {
   return (appState.comments || []).filter((c) => c.bookId === bookId).length;
 }
 
+function renderPublicProfilesDirectory() {
+  const listEl = document.getElementById('public-profiles-list');
+  const countEl = document.getElementById('public-profiles-count');
+  if (!listEl) return;
+
+  const accounts = appState?.accounts || [];
+  const activeSlug = normalizeUsername(appState?.profile?.username);
+
+  if (countEl) {
+    countEl.textContent = `${accounts.length} ${accounts.length === 1 ? 'perfil ativo' : 'perfis ativos'}`;
+  }
+
+  if (accounts.length === 0) {
+    listEl.innerHTML = '<p class="text-xs text-stone-400 italic">Nenhum perfil cadastrado ainda.</p>';
+    return;
+  }
+
+  listEl.innerHTML = accounts.map((acc) => {
+    const p = acc.profile || {};
+    const slug = normalizeUsername(p.username) || 'oseunome';
+    const isActive = slug === activeSlug;
+    const bookCount = Array.isArray(acc.books) ? acc.books.length : 0;
+    const avatarSrc = safeUrl(p.avatarUrl, '');
+    const initials = escapeHtml(
+      (p.name || slug || 'NM')
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((part) => part[0] || '')
+        .join('')
+        .toUpperCase()
+    );
+
+    const avatarHtml = avatarSrc
+      ? `<img src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(p.name || slug)}" onerror="handleAvatarError(this, '${escapeHtml(p.name || slug)}')" class="w-9 h-9 rounded-full object-cover shrink-0 bg-stone-200 dark:bg-stone-700" />`
+      : `<div class="w-9 h-9 rounded-full bg-terracotta-500 text-white font-serif font-bold text-xs flex items-center justify-center shrink-0">${initials}</div>`;
+
+    return `
+      <button type="button" onclick="selectPublicProfile('${escapeHtml(slug)}')"
+        class="shrink-0 flex items-center gap-2.5 px-3 py-2 rounded-2xl border text-left transition ${
+          isActive
+            ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-400 dark:border-amber-600 shadow-xs'
+            : 'bg-stone-50 hover:bg-stone-100 dark:bg-stone-800/70 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80'
+        }">
+        ${avatarHtml}
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-bold text-stone-900 dark:text-white truncate max-w-[130px]">${escapeHtml(p.name || slug)}</span>
+            ${isActive ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>' : ''}
+          </div>
+          <p class="text-[11px] text-stone-500 dark:text-stone-400 truncate">@${escapeHtml(slug)} • ${bookCount} ${bookCount === 1 ? 'livro' : 'livros'}</p>
+        </div>
+      </button>
+    `;
+  }).join('');
+}
+
+window.selectPublicProfile = function (username) {
+  const acc = findLocalAccountByUsername(username);
+  if (!acc) return;
+
+  loadAccountIntoWorkingState(acc);
+  saveState();
+
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    try {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set('u', acc.profile.username);
+      window.history.replaceState(null, '', nextUrl.toString());
+    } catch (_) {}
+  }
+
+  renderAll();
+  showToast(`Visualizando a estante de @${acc.profile.username}`, '📚');
+};
+
 function renderPublicShelf() {
+  renderPublicProfilesDirectory();
   renderPublicProfile();
 
   const allBooks = appState.books || [];
@@ -2586,13 +2661,60 @@ window.handleSaveProfile = async function (event) {
     }
   }
 
-  appState.profile = {
+  const updatedProfile = {
     name,
     username,
     bio: document.getElementById('cfg-bio').value.trim(),
     avatarUrl: document.getElementById('cfg-avatar').value.trim(),
     instagramUrl: document.getElementById('cfg-instagram').value.trim()
   };
+
+  // Se estiver editando a conta padrão (@leitoracriativa) com outro @username, preserva o perfil padrão e cria um novo separado
+  const isEditingDemoWithNewUsername =
+    (authSession.userId === DEMO_USER_ID || (!isSupabaseConfigured() && normalizeUsername(authSession.username) === 'leitoracriativa')) &&
+    username !== 'leitoracriativa';
+
+  if (isEditingDemoWithNewUsername) {
+    const demoSeed = createDemoAccount();
+    const demoBookIds = new Set(demoSeed.books.map((b) => b.id));
+    const customBooks = (appState.books || []).filter((b) => !demoBookIds.has(b.id));
+
+    // Restaura/preserva @leitoracriativa intacto na lista de contas
+    const demoIdx = (appState.accounts || []).findIndex(
+      (a) => a.userId === DEMO_USER_ID || normalizeUsername(a.profile?.username) === 'leitoracriativa'
+    );
+    if (demoIdx !== -1) {
+      appState.accounts[demoIdx] = demoSeed;
+    } else {
+      appState.accounts.unshift(demoSeed);
+    }
+
+    const newAccount = {
+      userId: generateId('usr'),
+      email: `${username}@local.estante`,
+      password: '123456',
+      profile: updatedProfile,
+      clubs: [],
+      books: customBooks
+    };
+    appState.accounts.push(newAccount);
+    setAuthSession({
+      userId: newAccount.userId,
+      email: newAccount.email,
+      username,
+      accessToken: null,
+      refreshToken: null,
+      mode: 'local'
+    });
+    loadAccountIntoWorkingState(newAccount);
+    saveState();
+    updateAuthHeaderUI();
+    renderAll();
+    showToast(`Novo perfil @${username} criado mantendo @leitoracriativa ativo!`, '🎉');
+    return;
+  }
+
+  appState.profile = updatedProfile;
 
   setAuthSession({
     ...authSession,
