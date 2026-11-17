@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Na Minha Estante — Vitrine Literária Interativa</title>
+  <meta name="description" content="Estante pessoal interativa para criadores de conteúdo e leitores: indicações de livros, leituras atuais, clubes e links da Amazon." />
+
+  <!-- Google Fonts: Playfair Display (editorial) + Plus Jakarta Sans (UI limpa) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+            serif: ['"Playfair Display"', 'Georgia', 'serif'],
+          },
+          colors: {
+            paper: {
+              50: '#FCFBF8',
+              100: '#F7F4EC',
+              200: '#ECE5D5',
+              300: '#DFD4BC',
+            },
+            terracotta: {
+              500: '#C85A32',
+              600: '#B04A24',
+              700: '#8F391A',
+            },
+            forest: {
+              600: '#2D5A43',
+              700: '#234734',
+            }
+          },
+          boxShadow: {
+            'book': '0 14px 28px -8px rgba(32, 24, 16, 0.22), 0 4px 10px -4px rgba(32, 24, 16, 0.12)',
+            'soft': '0 8px 30px rgba(0, 0, 0, 0.06)',
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- QR Code Generator -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    }
+    .book-spine-effect {
+      position: relative;
+      overflow: hidden;
+    }
+    .book-spine-effect::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, rgba(255,255,255,0.22) 0%, rgba(0,0,0,0.08) 4%, rgba(255,255,255,0.12) 7%, rgba(0,0,0,0) 14%);
+      pointer-events: none;
+    }
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .line-clamp-3 {
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-up {
+      animation: fadeSlideUp 0.25s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="bg-paper-50 text-stone-800 dark:bg-stone-950 dark:text-stone-100 min-h-screen transition-colors duration-200 selection:bg-amber-200 selection:text-stone-900">
+
+  <!-- Barra de Controle Superior Flutuante -->
+  <header class="sticky top-0 z-40 px-3 sm:px-6 pt-3 pb-2 pointer-events-none">
+    <div class="max-w-5xl mx-auto pointer-events-auto">
+      <nav class="bg-white/90 dark:bg-stone-900/90 backdrop-blur-md border border-stone-200/80 dark:border-stone-800 rounded-2xl shadow-soft px-3 sm:px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+        <!-- Marca & Rota Simulada -->
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-600 to-terracotta-600 text-white flex items-center justify-center shadow-sm shrink-0">
+            <i data-lucide="library" class="w-5 h-5"></i>
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5">
+              <span class="font-serif font-bold text-base sm:text-lg tracking-tight truncate">Na Minha Estante</span>
+              <span id="supabase-status-pill" class="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-500 dark:text-stone-400">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                Local
+              </span>
+            </div>
+            <p id="header-route-preview" class="text-[11px] text-stone-500 dark:text-stone-400 truncate">/leitoracriativa</p>
+          </div>
+        </div>
+
+        <!-- Alternância Estante Pública / Admin + Ações -->
+        <div class="flex items-center gap-1.5 sm:gap-2">
+          <div class="inline-flex p-1 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200/60 dark:border-stone-700/60">
+            <button id="btn-view-public" type="button" onclick="switchMainView('public')"
+              class="px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
+              <span>📚</span>
+              <span class="hidden xs:inline sm:inline">Ver Estante Pública</span>
+              <span class="sm:hidden">Estante</span>
+            </button>
+            <button id="btn-view-admin" type="button" onclick="switchMainView('admin')"
+              class="px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
+              <span>⚙️</span>
+              <span class="hidden sm:inline">Painel Admin</span>
+              <span class="sm:hidden">Admin</span>
+            </button>
+          </div>
+
+          <button type="button" onclick="openQrModal()" title="QR Code da Estante"
+            class="px-2.5 sm:px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+            <span>📱</span>
+            <span class="hidden md:inline">QR Code da Estante</span>
+          </button>
+
+          <!-- Conta / Login / Cadastro -->
+          <button id="btn-header-auth" type="button" onclick="openAuthModal('login')"
+            class="px-2.5 sm:px-3 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 dark:bg-amber-500 dark:hover:bg-amber-400 text-white dark:text-stone-950 text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+            <span>👤</span>
+            <span class="hidden sm:inline">Entrar / Criar Conta</span>
+            <span class="sm:hidden">Entrar</span>
+          </button>
+
+          <div id="header-user-actions" class="hidden items-center gap-1">
+            <button id="header-user-badge" type="button" onclick="openMyAdminOrShelf()" title="Minha conta"
+              class="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 text-xs font-semibold transition flex items-center gap-1.5 max-w-[130px] truncate">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+              <span id="header-user-badge-text" class="truncate">@conta</span>
+            </button>
+            <button id="btn-header-logout" type="button" onclick="handleAuthLogout()" title="Sair da conta"
+              class="p-2 rounded-xl bg-stone-100 hover:bg-rose-100 dark:bg-stone-800 dark:hover:bg-rose-950/60 text-stone-600 hover:text-rose-700 dark:text-stone-300 dark:hover:text-rose-300 transition">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <button id="btn-theme-toggle" type="button" onclick="toggleTheme()" title="Alternar modo escuro / claro"
+            class="p-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 transition">
+            <i data-lucide="moon" id="theme-icon-moon" class="w-4 h-4"></i>
+            <i data-lucide="sun" id="theme-icon-sun" class="w-4 h-4 hidden"></i>
+          </button>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Container Principal -->
+  <main class="max-w-5xl mx-auto px-4 sm:px-6 pb-20 pt-4">
+
+    <!-- =========================================================
+         VISÃO 1: PÁGINA DA ESTANTE DO USUÁRIO (/oseunome)
+         ========================================================= -->
+    <section id="view-public" class="space-y-8 animate-fade-up">
+
+      <!-- Cabeçalho do Perfil -->
+      <div class="relative overflow-hidden rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-soft p-6 sm:p-8">
+        <div class="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-amber-100/70 via-transparent to-transparent dark:from-amber-900/20 pointer-events-none"></div>
+
+        <div class="relative flex flex-col sm:flex-row items-center sm:items-start gap-6">
+          <!-- Foto de Perfil -->
+          <div class="relative shrink-0">
+            <img id="profile-avatar" src="" alt="Foto de perfil"
+              class="w-24 h-24 sm:w-28 sm:h-28 rounded-full object-cover ring-4 ring-paper-100 dark:ring-stone-800 shadow-md bg-stone-200 dark:bg-stone-800" />
+            <span class="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center shadow ring-2 ring-white dark:ring-stone-900 text-sm" title="Curadoria verificada">
+              📖
+            </span>
+          </div>
+
+          <!-- Dados do Criador -->
+          <div class="flex-1 text-center sm:text-left space-y-3 min-w-0">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+              <h1 id="profile-name" class="font-serif text-2xl sm:text-3xl font-bold text-stone-900 dark:text-white tracking-tight"></h1>
+              <span id="profile-username-badge" class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-semibold bg-paper-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border border-paper-200 dark:border-stone-700 w-fit mx-auto sm:mx-0"></span>
+            </div>
+
+            <p id="profile-bio" class="text-sm sm:text-base text-stone-600 dark:text-stone-300 max-w-2xl leading-relaxed"></p>
+
+            <!-- Botões do Perfil -->
+            <div class="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-1">
+              <a id="profile-instagram-link" href="#" target="_blank" rel="noopener noreferrer"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500 via-pink-600 to-amber-500 hover:opacity-95 text-white text-xs sm:text-sm font-semibold shadow-sm transition">
+                <i data-lucide="instagram" class="w-4 h-4"></i>
+                <span>Seguir no Instagram</span>
+              </a>
+
+              <button type="button" onclick="openQrModal()"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs sm:text-sm font-semibold transition">
+                <i data-lucide="share-2" class="w-4 h-4"></i>
+                <span>Compartilhar / QR Code</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Seção: Clubes que Participo -->
+        <div class="mt-7 pt-6 border-t border-stone-100 dark:border-stone-800">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
+              <i data-lucide="award" class="w-4 h-4 text-amber-600 dark:text-amber-400"></i>
+              Clubes que Participo
+            </h2>
+            <span id="clubs-count-label" class="text-xs text-stone-400 dark:text-stone-500"></span>
+          </div>
+          <div id="clubs-container" class="flex flex-wrap gap-2.5"></div>
+        </div>
+      </div>
+
+      <!-- Abas de Navegação & Busca Rápida no Acervo -->
+      <div class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-2xl p-3 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div id="shelf-filter-tabs" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 md:pb-0">
+          <button type="button" data-filter="all" onclick="setShelfFilter('all')"
+            class="shelf-tab shrink-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+            Todas (<span id="count-all">0</span>)
+          </button>
+          <button type="button" data-filter="reading" onclick="setShelfFilter('reading')"
+            class="shelf-tab shrink-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+            📖 Lendo Agora (<span id="count-reading">0</span>)
+          </button>
+          <button type="button" data-filter="read" onclick="setShelfFilter('read')"
+            class="shelf-tab shrink-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+            ⭐ Já Lidos (<span id="count-read">0</span>)
+          </button>
+          <button type="button" data-filter="wishlist" onclick="setShelfFilter('wishlist')"
+            class="shelf-tab shrink-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+            🎯 Quero Ler (<span id="count-wishlist">0</span>)
+          </button>
+        </div>
+
+        <div class="relative w-full md:w-64 shrink-0">
+          <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          <input id="public-search-input" type="text" placeholder="Buscar na estante..."
+            oninput="handlePublicSearch(this.value)"
+            class="w-full pl-9 pr-8 py-2 rounded-xl bg-stone-50 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition" />
+          <button id="btn-clear-public-search" type="button" onclick="clearPublicSearch()"
+            class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Prateleira 1: 📖 Lendo Agora (Destaque) -->
+      <section id="section-reading" class="space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="font-serif text-xl sm:text-2xl font-bold text-stone-900 dark:text-white flex items-center gap-2">
+              <span>📖</span> Lendo Agora
+            </h2>
+            <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Minha leitura atual em andamento com sinopse e impressões iniciais.</p>
+          </div>
+        </div>
+        <div id="reading-books-container" class="space-y-4"></div>
+      </section>
+
+      <!-- Prateleira 2: ⭐ Já Lidos & Recomendados -->
+      <section id="section-read" class="space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="font-serif text-xl sm:text-2xl font-bold text-stone-900 dark:text-white flex items-center gap-2">
+              <span>⭐</span> Já Lidos &amp; Recomendados
+            </h2>
+            <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Acervo histórico com avaliações de 1 a 5 estrelas e resenhas sinceras.</p>
+          </div>
+        </div>
+        <div id="read-books-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+      </section>
+
+      <!-- Prateleira 3: 🎯 Quero Ler -->
+      <section id="section-wishlist" class="space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="font-serif text-xl sm:text-2xl font-bold text-stone-900 dark:text-white flex items-center gap-2">
+              <span>🎯</span> Quero Ler
+            </h2>
+            <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Lista de desejos, próximos lançamentos e títulos no radar.</p>
+          </div>
+        </div>
+        <div id="wishlist-books-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"></div>
+      </section>
+
+      <!-- Estado vazio para busca sem resultados -->
+      <div id="public-empty-search" class="hidden text-center py-12 bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800">
+        <div class="text-4xl mb-2">🔍</div>
+        <h3 class="font-serif text-lg font-bold text-stone-800 dark:text-stone-100">Nenhum livro encontrado</h3>
+        <p class="text-sm text-stone-500 dark:text-stone-400 mt-1">Tente limpar o filtro ou buscar por outro título ou autor.</p>
+        <button type="button" onclick="resetPublicFilters()"
+          class="mt-4 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition">
+          Ver toda a estante
+        </button>
+      </div>
+
+      <!-- Rodapé discreto de transparência de afiliados -->
+      <footer class="pt-4 pb-6 text-center text-xs text-stone-500 dark:text-stone-400 space-y-1">
+        <p>
+          Vitrine literária criada com <span class="font-semibold text-stone-700 dark:text-stone-300">Na Minha Estante</span>.
+        </p>
+        <p class="opacity-80">Como associado da Amazon, os links de compra nesta página podem gerar uma pequena comissão sem custo extra para você.</p>
+      </footer>
+    </section>
+
+    <!-- =========================================================
+         VISÃO 2: PAINEL ADMINISTRATIVO (ADMIN)
+         ========================================================= -->
+    <section id="view-admin" class="hidden space-y-6 animate-fade-up">
+
+      <!-- Cabeçalho do Admin + Sub-abas -->
+      <div class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-3xl p-5 sm:p-6 shadow-soft space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
+                Painel Administrativo
+              </span>
+              <span id="admin-current-account-label" class="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60"></span>
+            </div>
+            <h1 class="font-serif text-2xl font-bold text-stone-900 dark:text-white mt-0.5">Gerencie sua Estante, Perfil e Clubes</h1>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <button type="button" onclick="openAuthModal('login')"
+              class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 text-xs font-semibold transition">
+              <i data-lucide="users" class="w-3.5 h-3.5"></i>
+              <span>Trocar / Criar Conta</span>
+            </button>
+            <button type="button" onclick="switchMainView('public')"
+              class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-xs sm:text-sm font-semibold transition">
+              <i data-lucide="eye" class="w-4 h-4"></i>
+              <span>Visualizar Estante</span>
+            </button>
+            <button type="button" onclick="handleAuthLogout()"
+              class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-xs font-semibold transition">
+              <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+              <span>Sair da Conta</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Sub-abas do Admin -->
+        <div class="flex items-center gap-2 overflow-x-auto no-scrollbar pt-1 border-t border-stone-100 dark:border-stone-800">
+          <button type="button" data-admin-tab="add" onclick="switchAdminTab('add')"
+            class="admin-tab shrink-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+            <i data-lucide="search" class="w-4 h-4"></i>
+            <span>Buscar Livros &amp; Adicionar</span>
+          </button>
+          <button type="button" data-admin-tab="catalog" onclick="switchAdminTab('catalog')"
+            class="admin-tab shrink-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+            <i data-lucide="book-open" class="w-4 h-4"></i>
+            <span>Gerenciar Acervo (<span id="admin-books-count">0</span>)</span>
+          </button>
+          <button type="button" data-admin-tab="profile" onclick="switchAdminTab('profile')"
+            class="admin-tab shrink-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+            <i data-lucide="user-cog" class="w-4 h-4"></i>
+            <span>Perfil &amp; Clubes</span>
+          </button>
+          <button type="button" data-admin-tab="database" onclick="switchAdminTab('database')"
+            class="admin-tab shrink-0 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+            <i data-lucide="database" class="w-4 h-4"></i>
+            <span>Supabase &amp; Backup</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- SUB-ABA 1: Buscar no Google Books + Open Library & Adicionar/Editar Livro -->
+      <div id="admin-panel-add" class="admin-panel space-y-6">
+        <!-- Card de Busca Google Books + Open Library -->
+        <div class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 class="font-serif text-lg sm:text-xl font-bold flex items-center gap-2">
+                <span>🔎</span> Buscar Livro (Google Books + Open Library)
+              </h2>
+              <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Busque por título, autor ou ISBN no Google Books — se não encontrar ou faltar capa, consultamos a Open Library automaticamente.</p>
+            </div>
+            <span class="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 w-fit">
+              Google Books + Open Library
+            </span>
+          </div>
+
+          <form onsubmit="handleGoogleBooksSearch(event)" class="flex flex-col sm:flex-row gap-2.5">
+            <div class="relative flex-1">
+              <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+              <input id="google-books-query" type="text" required
+                placeholder="Ex: Duna, Torto Arado, É Assim que Acaba, 9788535932966..."
+                class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500" />
+            </div>
+            <button id="btn-google-search" type="submit"
+              class="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold shadow-sm transition flex items-center justify-center gap-2 shrink-0">
+              <i data-lucide="search" class="w-4 h-4"></i>
+              <span>Buscar Livros</span>
+            </button>
+          </form>
+
+          <!-- Resultados Google Books -->
+          <div id="google-books-status" class="hidden text-sm text-stone-500 dark:text-stone-400 py-2"></div>
+          <div id="google-books-results" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+        </div>
+
+        <!-- Formulário de Cadastro / Edição de Livro -->
+        <div class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-3xl p-5 sm:p-6 shadow-sm">
+          <div class="flex items-center justify-between gap-3 mb-5">
+            <div>
+              <h2 id="book-form-heading" class="font-serif text-lg sm:text-xl font-bold">Adicionar Livro à Estante</h2>
+              <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Os dados podem vir da busca acima (Google Books / Open Library) ou ser preenchidos manualmente.</p>
+            </div>
+            <button id="btn-cancel-edit" type="button" onclick="resetBookForm()"
+              class="hidden px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-xs font-semibold transition">
+              Cancelar Edição
+            </button>
+          </div>
+
+          <form id="book-form" onsubmit="handleSaveBook(event)" class="space-y-4">
+            <input type="hidden" id="book-id" value="" />
+            <input type="hidden" id="book-isbn" value="" />
+
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-5">
+              <!-- Preview da Capa -->
+              <div class="md:col-span-3 flex flex-col items-center gap-2">
+                <div class="w-32 h-48 rounded-xl overflow-hidden bg-stone-100 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 shadow-book book-spine-effect flex items-center justify-center">
+                  <img id="book-cover-preview" src="" alt="Preview da capa" class="w-full h-full object-cover hidden" />
+                  <div id="book-cover-placeholder" class="text-center p-3 text-xs text-stone-400">
+                    <i data-lucide="image" class="w-6 h-6 mx-auto mb-1 opacity-60"></i>
+                    Preview da capa
+                  </div>
+                </div>
+                <span class="text-[11px] text-stone-400 text-center">Proporção ideal 2:3</span>
+              </div>
+
+              <!-- Campos Principais -->
+              <div class="md:col-span-9 space-y-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label for="book-title" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Título do Livro *</label>
+                    <input id="book-title" type="text" required placeholder="Ex: Tudo é Rio"
+                      class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+                  </div>
+                  <div>
+                    <label for="book-author" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Autor(a) *</label>
+                    <input id="book-author" type="text" required placeholder="Ex: Carla Madeira"
+                      class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+                  </div>
+                </div>
+
+                <div>
+                  <label for="book-cover" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">URL da Capa</label>
+                  <input id="book-cover" type="url" placeholder="https://..." oninput="updateCoverPreview(this.value)"
+                    class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label for="book-shelf" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Prateleira *</label>
+                    <select id="book-shelf" onchange="toggleBookShelfFields()"
+                      class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40">
+                      <option value="reading">📖 Lendo Agora</option>
+                      <option value="read">⭐ Já Lidos &amp; Recomendados</option>
+                      <option value="wishlist">🎯 Quero Ler</option>
+                    </select>
+                  </div>
+
+                  <div id="field-rating-wrapper">
+                    <label for="book-rating" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Nota (1 a 5 estrelas)</label>
+                    <select id="book-rating"
+                      class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40">
+                      <option value="5">⭐⭐⭐⭐⭐ (5)</option>
+                      <option value="4">⭐⭐⭐⭐ (4)</option>
+                      <option value="3">⭐⭐⭐ (3)</option>
+                      <option value="2">⭐⭐ (2)</option>
+                      <option value="1">⭐ (1)</option>
+                      <option value="0">Sem nota ainda</option>
+                    </select>
+                  </div>
+
+                  <div id="field-progress-wrapper">
+                    <label for="book-progress" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">
+                      Progresso: <span id="book-progress-value" class="font-bold text-amber-600">50%</span>
+                    </label>
+                    <input id="book-progress" type="range" min="0" max="100" value="50"
+                      oninput="document.getElementById('book-progress-value').textContent = this.value + '%'"
+                      class="w-full accent-amber-600 mt-2" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label for="book-synopsis" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Sinopse</label>
+              <textarea id="book-synopsis" rows="3" placeholder="Resumo da obra..."
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"></textarea>
+            </div>
+
+            <div>
+              <label for="book-review" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Sua Resenha / Impressões Pessoais</label>
+              <textarea id="book-review" rows="3" placeholder="O que você achou do livro? Por que recomenda?"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"></textarea>
+            </div>
+
+            <div class="pt-2 flex flex-wrap items-center justify-end gap-3">
+              <button type="button" onclick="resetBookForm()"
+                class="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-sm font-semibold transition">
+                Limpar Formulário
+              </button>
+              <button type="submit"
+                class="px-6 py-2.5 rounded-xl bg-forest-600 hover:bg-forest-700 text-white text-sm font-semibold shadow-sm transition flex items-center gap-2">
+                <i data-lucide="save" class="w-4 h-4"></i>
+                <span id="book-form-submit-label">Salvar na Estante</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- SUB-ABA 2: Gerenciar Meu Acervo -->
+      <div id="admin-panel-catalog" class="admin-panel hidden bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 class="font-serif text-xl font-bold">Gerenciar Meu Acervo</h2>
+            <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Mude livros de prateleira rapidamente, edite resenhas ou remova itens.</p>
+          </div>
+          <button type="button" onclick="switchAdminTab('add')"
+            class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs sm:text-sm font-semibold transition flex items-center gap-1.5 w-fit">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Novo Livro</span>
+          </button>
+        </div>
+
+        <div id="admin-catalog-list" class="divide-y divide-stone-100 dark:divide-stone-800"></div>
+      </div>
+
+      <!-- SUB-ABA 3: Perfil & Clubes de Leitura -->
+      <div id="admin-panel-profile" class="admin-panel hidden space-y-6">
+        <!-- Formulário de Perfil -->
+        <form onsubmit="handleSaveProfile(event)" class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-3xl p-5 sm:p-6 shadow-sm space-y-5">
+          <div>
+            <h2 class="font-serif text-xl font-bold">Perfil Público da Estante</h2>
+            <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Personalize a sua vitrine pública e o link exclusivo da sua estante.</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label for="cfg-name" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Nome de Exibição *</label>
+              <input id="cfg-name" type="text" required
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+            <div>
+              <label for="cfg-username" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Seu @ / Rota da Estante *</label>
+              <input id="cfg-username" type="text" required placeholder="oseunome"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+          </div>
+
+          <div>
+            <label for="cfg-bio" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Bio Curta</label>
+            <textarea id="cfg-bio" rows="2"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"></textarea>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label for="cfg-avatar" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">URL da Foto de Perfil</label>
+              <input id="cfg-avatar" type="url" placeholder="https://..."
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+            <div>
+              <label for="cfg-instagram" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Link do Instagram</label>
+              <input id="cfg-instagram" type="url" placeholder="https://instagram.com/seuusuario"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+          </div>
+
+          <div class="flex justify-end">
+            <button type="submit"
+              class="px-6 py-2.5 rounded-xl bg-forest-600 hover:bg-forest-700 text-white text-sm font-semibold shadow-sm transition flex items-center gap-2">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span>Salvar Perfil</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Gestão de Clubes de Leitura -->
+        <div class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-3xl p-5 sm:p-6 shadow-sm space-y-5">
+          <div>
+            <h2 class="font-serif text-xl font-bold">Gestão de Clubes que Participo</h2>
+            <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Adicione ou remova os selos/crachás visuais exibidos no topo da sua estante.</p>
+          </div>
+
+          <form onsubmit="handleAddClub(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+            <div class="sm:col-span-2">
+              <label for="club-emoji" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Emoji</label>
+              <input id="club-emoji" type="text" maxlength="4" value="📚" required
+                class="w-full px-3 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-center text-base" />
+            </div>
+            <div class="sm:col-span-5">
+              <label for="club-name" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Nome do Clube *</label>
+              <input id="club-name" type="text" required placeholder="Ex: Clube Leia Mulheres"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm" />
+            </div>
+            <div class="sm:col-span-3">
+              <label for="club-tag" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Categoria ou Link (opcional)</label>
+              <input id="club-tag" type="text" placeholder="Ex: Mensal ou https://..."
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm" />
+            </div>
+            <div class="sm:col-span-2 flex items-end">
+              <button type="submit"
+                class="w-full px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition">
+                Adicionar
+              </button>
+            </div>
+          </form>
+
+          <div id="admin-clubs-list" class="flex flex-wrap gap-2.5 pt-2"></div>
+        </div>
+      </div>
+
+      <!-- SUB-ABA 4: Banco de Dados (Supabase) & Backup JSON -->
+      <div id="admin-panel-database" class="admin-panel hidden space-y-6">
+        <div class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-3xl p-5 sm:p-6 shadow-sm space-y-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h2 class="font-serif text-xl font-bold flex items-center gap-2">
+                <span>🗄️</span> Conectar Banco de Dados (Supabase — Passo 3)
+              </h2>
+              <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">
+                Enquanto não conectar, tudo funciona localmente no seu navegador. Ao conectar o Supabase, livros, perfil e comentários sincronizam na nuvem.
+              </p>
+            </div>
+            <span id="db-connection-badge" class="text-xs font-semibold px-3 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 w-fit">
+              Modo Local (localStorage)
+            </span>
+          </div>
+
+          <form onsubmit="handleSaveSupabaseConfig(event)" class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label for="sb-url" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Supabase Project URL</label>
+                <input id="sb-url" type="url" placeholder="https://seuprojeto.supabase.co"
+                  class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm font-mono" />
+              </div>
+              <div>
+                <label for="sb-key" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Supabase Anon Key</label>
+                <input id="sb-key" type="password" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm font-mono" />
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2.5">
+              <button type="submit"
+                class="px-5 py-2.5 rounded-xl bg-forest-600 hover:bg-forest-700 text-white text-sm font-semibold transition flex items-center gap-2">
+                <i data-lucide="plug" class="w-4 h-4"></i>
+                <span>Salvar &amp; Testar Conexão</span>
+              </button>
+              <button type="button" onclick="syncAllToSupabase()"
+                class="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition flex items-center gap-2">
+                <i data-lucide="upload" class="w-4 h-4"></i>
+                <span>Enviar Estante Local para Supabase</span>
+              </button>
+              <button type="button" onclick="pullFromSupabase()"
+                class="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-sm font-semibold transition flex items-center gap-2">
+                <i data-lucide="download" class="w-4 h-4"></i>
+                <span>Baixar Dados do Supabase</span>
+              </button>
+              <button type="button" onclick="copySupabaseSchema()"
+                class="px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-sm font-semibold transition flex items-center gap-2">
+                <i data-lucide="copy" class="w-4 h-4"></i>
+                <span>Copiar SQL das Tabelas</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Backup JSON & Dados de Demonstração -->
+        <div class="bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+          <div>
+            <h2 class="font-serif text-xl font-bold">Backup JSON &amp; Restauração</h2>
+            <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">Exporte toda a sua estante em arquivo JSON ou restaure os dados de exemplo.</p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3">
+            <button type="button" onclick="exportBackupJson()"
+              class="px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 dark:bg-stone-100 dark:hover:bg-stone-200 text-white dark:text-stone-900 text-sm font-semibold transition flex items-center gap-2">
+              <i data-lucide="download" class="w-4 h-4"></i>
+              <span>Exportar Backup JSON</span>
+            </button>
+
+            <label class="cursor-pointer px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-sm font-semibold transition flex items-center gap-2">
+              <i data-lucide="upload" class="w-4 h-4"></i>
+              <span>Importar Backup JSON</span>
+              <input type="file" accept="application/json,.json" class="hidden" onchange="importBackupJson(event)" />
+            </label>
+
+            <button type="button" onclick="restoreDemoData()"
+              class="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 text-sm font-semibold transition flex items-center gap-2">
+              <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+              <span>Restaurar Dados de Demonstração</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- =========================================================
+       MODAL DE LIVRO & COMENTÁRIOS (LOGIN ULTRARRÁPIDO)
+       ========================================================= -->
+  <div id="book-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-6 bg-stone-950/70 backdrop-blur-sm" onclick="handleBackdropClick(event, 'book-modal')">
+    <div class="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-up">
+      <!-- Topo do Modal -->
+      <div class="sticky top-0 z-10 bg-white/95 dark:bg-stone-900/95 backdrop-blur px-5 sm:px-6 py-4 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between gap-3">
+        <span id="modal-book-shelf-badge" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300"></span>
+        <button type="button" onclick="closeBookModal()" class="p-2 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 transition" aria-label="Fechar modal">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 sm:p-6 space-y-6">
+        <!-- Detalhes do Livro -->
+        <div class="flex flex-col sm:flex-row gap-5">
+          <div class="w-32 sm:w-36 aspect-[2/3] rounded-2xl overflow-hidden shadow-book book-spine-effect shrink-0 mx-auto sm:mx-0 bg-stone-100 dark:bg-stone-800">
+            <img id="modal-book-cover" src="" alt="" class="w-full h-full object-cover" />
+          </div>
+          <div class="flex-1 space-y-3 text-center sm:text-left">
+            <div>
+              <h2 id="modal-book-title" class="font-serif text-2xl font-bold text-stone-900 dark:text-white leading-tight"></h2>
+              <p id="modal-book-author" class="text-sm font-medium text-stone-500 dark:text-stone-400 mt-1"></p>
+            </div>
+
+            <div id="modal-book-meta" class="flex flex-wrap items-center justify-center sm:justify-start gap-2"></div>
+
+            <div class="pt-1">
+              <a id="modal-book-amazon-btn" href="#" target="_blank" rel="noopener noreferrer"
+                class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-sm shadow-sm transition w-full sm:w-auto">
+                <i data-lucide="shopping-bag" class="w-4 h-4"></i>
+                <span>Comprar na Amazon</span>
+                <i data-lucide="external-link" class="w-3.5 h-3.5 opacity-75"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Resenha do Criador -->
+        <div id="modal-book-review-box" class="hidden p-4 rounded-2xl bg-paper-100/80 dark:bg-stone-800/70 border border-paper-200 dark:border-stone-700 space-y-1.5">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+            <i data-lucide="quote" class="w-3.5 h-3.5"></i>
+            Resenha de quem indica
+          </h3>
+          <p id="modal-book-review" class="text-sm text-stone-700 dark:text-stone-200 leading-relaxed"></p>
+        </div>
+
+        <!-- Sinopse -->
+        <div id="modal-book-synopsis-box" class="space-y-1.5">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">Sinopse</h3>
+          <p id="modal-book-synopsis" class="text-sm text-stone-600 dark:text-stone-300 leading-relaxed"></p>
+        </div>
+
+        <!-- Seção de Comentários com Login Ultrarrápido -->
+        <div class="pt-5 border-t border-stone-200 dark:border-stone-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-serif text-lg font-bold flex items-center gap-2">
+              <i data-lucide="message-circle" class="w-5 h-5 text-amber-600"></i>
+              <span>Comentários dos Leitores (<span id="modal-comments-count">0</span>)</span>
+            </h3>
+          </div>
+
+          <!-- Login Ultrarrápido (se visitante não identificado) -->
+          <form id="visitor-quick-login-form" onsubmit="handleVisitorLogin(event)"
+            class="hidden p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 space-y-3">
+            <div>
+              <p class="text-sm font-bold text-stone-800 dark:text-stone-100">⚡ Login ultrarrápido para comentar</p>
+              <p class="text-xs text-stone-600 dark:text-stone-300">Sem senha ou burocracia: informe seu nome e Instagram para participar da conversa.</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <input id="visitor-name-input" type="text" required placeholder="Seu nome (ex: Ana)"
+                class="px-3.5 py-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+              <input id="visitor-handle-input" type="text" required placeholder="@seuinstagram"
+                class="px-3.5 py-2 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+            <button type="submit"
+              class="px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 dark:bg-amber-500 dark:hover:bg-amber-400 text-white dark:text-stone-950 text-xs sm:text-sm font-bold transition">
+              Entrar e Liberar Comentários
+            </button>
+          </form>
+
+          <!-- Formulário de Novo Comentário (se visitante já identificado) -->
+          <form id="visitor-comment-form" onsubmit="handleAddComment(event)"
+            class="hidden p-4 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700 space-y-3">
+            <div class="flex items-center justify-between gap-2 text-xs">
+              <span class="text-stone-600 dark:text-stone-300">
+                Comentando como <strong id="visitor-current-label" class="text-stone-900 dark:text-white"></strong>
+              </span>
+              <button type="button" onclick="logoutVisitor()" class="text-amber-700 dark:text-amber-400 hover:underline font-semibold">
+                Trocar visitante
+              </button>
+            </div>
+
+            <textarea id="comment-text-input" rows="2" required placeholder="Já leu esse livro? O que achou?"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"></textarea>
+
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2 text-xs">
+                <label for="comment-rating-input" class="font-semibold text-stone-500 dark:text-stone-400">Sua nota (opcional):</label>
+                <select id="comment-rating-input"
+                  class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-xs">
+                  <option value="0">Sem nota</option>
+                  <option value="5">⭐⭐⭐⭐⭐ 5</option>
+                  <option value="4">⭐⭐⭐⭐ 4</option>
+                  <option value="3">⭐⭐⭐ 3</option>
+                  <option value="2">⭐⭐ 2</option>
+                  <option value="1">⭐ 1</option>
+                </select>
+              </div>
+              <button type="submit"
+                class="px-4 py-2 rounded-xl bg-forest-600 hover:bg-forest-700 text-white text-xs sm:text-sm font-semibold transition flex items-center gap-1.5">
+                <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                <span>Publicar Comentário</span>
+              </button>
+            </div>
+          </form>
+
+          <!-- Lista de Comentários -->
+          <div id="modal-comments-list" class="space-y-3"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL DE QR CODE & COMPARTILHAMENTO
+       ========================================================= -->
+  <div id="qr-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm" onclick="handleBackdropClick(event, 'qr-modal')">
+    <div class="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl shadow-2xl max-w-md w-full p-6 text-center space-y-5 animate-fade-up">
+      <div class="flex items-center justify-between">
+        <h2 class="font-serif text-xl font-bold">Compartilhar Minha Estante</h2>
+        <button type="button" onclick="closeQrModal()" class="p-2 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <p class="text-xs sm:text-sm text-stone-500 dark:text-stone-400">
+        Coloque o link abaixo na bio do seu Instagram ou salve o QR Code para divulgar nos Stories e marcadores de página.
+      </p>
+
+      <div id="qr-code-container" class="mx-auto w-52 h-52 p-3 bg-white rounded-2xl border border-stone-200 shadow-inner flex items-center justify-center"></div>
+
+      <div class="space-y-2 text-left">
+        <label class="block text-[11px] font-bold uppercase tracking-wider text-stone-400">Link personalizado da estante</label>
+        <div class="flex items-center gap-2">
+          <input id="share-url-input" type="text" readonly
+            class="flex-1 px-3 py-2 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs font-mono text-stone-700 dark:text-stone-200" />
+          <button type="button" onclick="copyShareUrl()"
+            class="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition flex items-center gap-1.5 shrink-0">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+            <span>Copiar</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-center gap-2.5 pt-1">
+        <button type="button" onclick="downloadQrSvg()"
+          class="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-xs font-semibold transition flex items-center gap-1.5">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span>Baixar QR Code (SVG)</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL DE AUTENTICAÇÃO (ENTRAR / CRIAR MINHA ESTANTE)
+       ========================================================= -->
+  <div id="auth-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-6 bg-stone-950/70 backdrop-blur-sm" onclick="handleBackdropClick(event, 'auth-modal')">
+    <div class="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl shadow-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto animate-fade-up">
+      <div class="sticky top-0 z-10 bg-white/95 dark:bg-stone-900/95 backdrop-blur px-5 sm:px-6 py-4 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">📚</span>
+          <h2 class="font-serif text-lg sm:text-xl font-bold text-stone-900 dark:text-white">Sua Conta na Estante</h2>
+        </div>
+        <button type="button" onclick="closeAuthModal()" class="p-2 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 transition" aria-label="Fechar modal">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 sm:p-6 space-y-5">
+        <!-- Abas Entrar / Criar Conta -->
+        <div class="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-stone-100 dark:bg-stone-800 border border-stone-200/70 dark:border-stone-700/70">
+          <button type="button" data-auth-tab="login" onclick="switchAuthTab('login')"
+            class="auth-tab px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+            Entrar
+          </button>
+          <button type="button" data-auth-tab="signup" onclick="switchAuthTab('signup')"
+            class="auth-tab px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+            Criar Minha Estante
+          </button>
+        </div>
+
+        <!-- Formulário de Login -->
+        <form id="auth-login-form" onsubmit="handleAuthLogin(event)" class="space-y-4">
+          <div class="space-y-1">
+            <p class="text-xs sm:text-sm text-stone-600 dark:text-stone-300">
+              Entre para adicionar livros, editar suas prateleiras e gerenciar seus clubes de leitura.
+            </p>
+          </div>
+
+          <div>
+            <label for="login-identifier" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">E-mail ou @username *</label>
+            <input id="login-identifier" type="text" required placeholder="seu@email.com ou @usuario"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+          </div>
+
+          <div>
+            <label for="login-password" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Senha *</label>
+            <input id="login-password" type="password" required placeholder="••••••••"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+          </div>
+
+          <button id="btn-auth-login-submit" type="submit"
+            class="w-full px-5 py-2.5 rounded-xl bg-forest-600 hover:bg-forest-700 text-white text-sm font-semibold shadow-sm transition flex items-center justify-center gap-2">
+            <i data-lucide="log-in" class="w-4 h-4"></i>
+            <span>Entrar no Painel</span>
+          </button>
+
+          <div class="pt-2 border-t border-stone-100 dark:border-stone-800">
+            <button type="button" onclick="loginWithDemoAccount()"
+              class="w-full px-4 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 text-xs font-semibold transition">
+              ✨ Entrar com Conta Demo (@leitoracriativa)
+            </button>
+          </div>
+        </form>
+
+        <!-- Formulário de Cadastro -->
+        <form id="auth-signup-form" onsubmit="handleAuthSignup(event)" class="hidden space-y-3.5">
+          <p class="text-xs sm:text-sm text-stone-600 dark:text-stone-300">
+            Crie seu perfil em segundos e ganhe seu link exclusivo com vitrine de livros e QR Code.
+          </p>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="signup-name" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Nome de Exibição *</label>
+              <input id="signup-name" type="text" required placeholder="Ex: João Silva"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+            <div>
+              <label for="signup-username" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Seu @username *</label>
+              <input id="signup-username" type="text" required placeholder="joaosilva"
+                oninput="updateSignupUsernamePreview(this.value)"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+          </div>
+
+          <div class="px-3 py-2 rounded-xl bg-paper-100 dark:bg-stone-800/80 border border-paper-200 dark:border-stone-700 text-[11px] text-stone-600 dark:text-stone-300">
+            Link da sua estante: <code id="signup-url-preview" class="font-mono font-semibold text-amber-800 dark:text-amber-300">?u=seunome</code>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="signup-email" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">E-mail *</label>
+              <input id="signup-email" type="email" required placeholder="voce@email.com"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+            <div>
+              <label for="signup-password" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Senha * (mín. 6)</label>
+              <input id="signup-password" type="password" required minlength="6" placeholder="Mínimo 6 caracteres"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            </div>
+          </div>
+
+          <div>
+            <label for="signup-bio" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Bio curta (opcional)</label>
+            <textarea id="signup-bio" rows="2" placeholder="Conte seus gêneros literários favoritos..."
+              class="w-full px-3.5 py-2 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40"></textarea>
+          </div>
+
+          <div>
+            <label for="signup-instagram" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Link do Instagram (opcional)</label>
+            <input id="signup-instagram" type="url" placeholder="https://instagram.com/seuusuario"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+          </div>
+
+          <button id="btn-auth-signup-submit" type="submit"
+            class="w-full px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold shadow-sm transition flex items-center justify-center gap-2">
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            <span>Criar Conta e Abrir Minha Estante</span>
+          </button>
+        </form>
+
+        <!-- Troca rápida entre contas locais cadastradas (Modo Local) -->
+        <div id="auth-local-accounts-section" class="hidden pt-3 border-t border-stone-100 dark:border-stone-800 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-stone-400">Contas Locais Disponíveis</span>
+            <span class="text-[11px] text-stone-400">Clique para alternar</span>
+          </div>
+          <div id="auth-local-accounts-list" class="flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast de Notificação -->
+  <div id="toast" class="fixed bottom-5 right-5 z-[60] hidden max-w-sm px-4 py-3 rounded-2xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-sm font-medium shadow-xl flex items-center gap-2.5 animate-fade-up">
+    <span id="toast-icon">✅</span>
+    <span id="toast-message"></span>
+  </div>
+
+  <!-- Lógica da Aplicação -->
+  <script src="app.js"></script>
+</body>
+</html>
