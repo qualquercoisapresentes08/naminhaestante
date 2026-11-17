@@ -1674,12 +1674,7 @@ function renderPublicProfilesDirectory() {
     countEl.textContent = `${accounts.length} ${accounts.length === 1 ? 'perfil ativo' : 'perfis ativos'}`;
   }
 
-  if (accounts.length === 0) {
-    listEl.innerHTML = '<p class="text-xs text-stone-400 italic">Nenhum perfil cadastrado ainda.</p>';
-    return;
-  }
-
-  listEl.innerHTML = accounts.map((acc) => {
+  const profileCardsHtml = accounts.map((acc) => {
     const p = acc.profile || {};
     const slug = normalizeUsername(p.username) || 'oseunome';
     const isActive = slug === activeSlug;
@@ -1695,27 +1690,63 @@ function renderPublicProfilesDirectory() {
     );
 
     const avatarHtml = avatarSrc
-      ? `<img src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(p.name || slug)}" onerror="handleAvatarError(this, '${escapeHtml(p.name || slug)}')" class="w-9 h-9 rounded-full object-cover shrink-0 bg-stone-200 dark:bg-stone-700" />`
-      : `<div class="w-9 h-9 rounded-full bg-terracotta-500 text-white font-serif font-bold text-xs flex items-center justify-center shrink-0">${initials}</div>`;
+      ? `<img src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(p.name || slug)}" onerror="handleAvatarError(this, '${escapeHtml(p.name || slug)}')" class="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover ring-4 ring-paper-100 dark:ring-stone-700 shadow-md shrink-0 bg-stone-200 dark:bg-stone-700" />`
+      : `<div class="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-terracotta-500 text-white font-serif font-bold text-xl flex items-center justify-center ring-4 ring-paper-100 dark:ring-stone-700 shadow-md shrink-0">${initials}</div>`;
 
     return `
       <button type="button" onclick="selectPublicProfile('${escapeHtml(slug)}')"
-        class="shrink-0 flex items-center gap-2.5 px-3 py-2 rounded-2xl border text-left transition ${
+        class="group relative aspect-[2/3] rounded-2xl p-4 border flex flex-col items-center justify-between text-center transition ${
           isActive
-            ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-400 dark:border-amber-600 shadow-xs'
-            : 'bg-stone-50 hover:bg-stone-100 dark:bg-stone-800/70 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80'
+            ? 'bg-gradient-to-b from-amber-50 to-white dark:from-amber-950/40 dark:to-stone-900 border-amber-400 dark:border-amber-600 shadow-soft ring-2 ring-amber-400/40'
+            : 'bg-paper-50 hover:bg-white dark:bg-stone-800/60 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 hover:shadow-soft'
         }">
-        ${avatarHtml}
-        <div class="min-w-0">
-          <div class="flex items-center gap-1.5">
-            <span class="text-xs font-bold text-stone-900 dark:text-white truncate max-w-[130px]">${escapeHtml(p.name || slug)}</span>
-            ${isActive ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>' : ''}
+        <div class="w-full flex justify-end min-h-[1.25rem]">
+          ${isActive
+            ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-stone-950">Ativa</span>'
+            : '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-stone-200/70 dark:bg-stone-700/70 text-stone-600 dark:text-stone-300 opacity-80 group-hover:opacity-100">Perfil</span>'}
+        </div>
+
+        <div class="flex flex-col items-center gap-2 min-w-0 w-full">
+          ${avatarHtml}
+          <div class="min-w-0 w-full space-y-0.5">
+            <h3 class="font-serif font-bold text-sm sm:text-base text-stone-900 dark:text-white line-clamp-1">${escapeHtml(p.name || slug)}</h3>
+            <p class="text-xs font-semibold text-amber-700 dark:text-amber-400 truncate">@${escapeHtml(slug)}</p>
           </div>
-          <p class="text-[11px] text-stone-500 dark:text-stone-400 truncate">@${escapeHtml(slug)} • ${bookCount} ${bookCount === 1 ? 'livro' : 'livros'}</p>
+          <p class="text-[11px] text-stone-500 dark:text-stone-400 line-clamp-2 leading-snug px-1">
+            ${escapeHtml(p.bio || 'Estante literária aberta para recomendações e leituras.')}
+          </p>
+        </div>
+
+        <div class="w-full space-y-2">
+          <span class="inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 text-[11px] font-semibold text-stone-700 dark:text-stone-200">
+            📚 ${bookCount} ${bookCount === 1 ? 'livro' : 'livros'} na estante
+          </span>
+          <div class="w-full py-1.5 rounded-xl text-xs font-bold transition ${
+            isActive
+              ? 'bg-stone-900 text-white dark:bg-amber-500 dark:text-stone-950'
+              : 'bg-stone-100 group-hover:bg-amber-500 text-stone-700 group-hover:text-stone-950 dark:bg-stone-700 dark:text-stone-200 dark:group-hover:bg-amber-500 dark:group-hover:text-stone-950'
+          }">
+            ${isActive ? '✓ Selecionada' : 'Ver Estante'}
+          </div>
         </div>
       </button>
     `;
   }).join('');
+
+  const addProfileCardHtml = `
+    <button type="button" onclick="openAuthModal('signup')"
+      class="group aspect-[2/3] rounded-2xl p-4 border-2 border-dashed border-stone-300 hover:border-amber-500 dark:border-stone-700 dark:hover:border-amber-500 bg-stone-50/50 hover:bg-amber-50/40 dark:bg-stone-900/40 dark:hover:bg-amber-950/20 flex flex-col items-center justify-center text-center gap-3 transition">
+      <div class="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center text-2xl shadow-xs group-hover:scale-105 transition">
+        ➕
+      </div>
+      <div class="space-y-1">
+        <p class="font-serif font-bold text-sm sm:text-base text-stone-800 dark:text-stone-100">Criar Meu Perfil</p>
+        <p class="text-[11px] text-stone-500 dark:text-stone-400 leading-snug px-2">Cadastre sua estante e apareça aqui na vitrine</p>
+      </div>
+    </button>
+  `;
+
+  listEl.innerHTML = profileCardsHtml + addProfileCardHtml;
 }
 
 window.selectPublicProfile = function (username) {
