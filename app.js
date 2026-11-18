@@ -131,6 +131,8 @@ let currentMainView = 'public'; // 'public' | 'admin'
 let currentAdminTab = 'add'; // 'add' | 'catalog' | 'profile' | 'database'
 let currentShelfFilter = 'all'; // 'all' | 'reading' | 'read' | 'wishlist'
 let publicSearchTerm = '';
+let platformSearchTerm = '';
+let platformSearchScope = 'all'; // 'all' | 'users' | 'books' | 'topics'
 let activeModalBookId = null;
 let lastBookSearchResults = [];
 let pendingAdminAfterAuth = false;
@@ -240,10 +242,204 @@ function createDemoAccount() {
   };
 }
 
+function createDefaultCommunityAccounts() {
+  const now = new Date().toISOString();
+
+  const marianaAccount = {
+    userId: 'demo_marileituras',
+    email: 'mariana@naminhaestante.app',
+    password: '123456',
+    profile: {
+      name: 'Mariana Costa',
+      username: 'marileituras',
+      bio: 'Apaixonada por literatura brasileira, poesia e clubes de leitura coletivos. Sempre com um livro nacional na bolsa.',
+      avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
+      instagramUrl: 'https://instagram.com/marileituras'
+    },
+    clubs: [
+      { id: 'club_mari_1', emoji: '💜', name: 'Leia Mulheres', meta: 'Encontro Coletivo' },
+      { id: 'club_mari_2', emoji: '🇧🇷', name: 'Brasil em Páginas', meta: 'Literatura Brasileira' }
+    ],
+    books: [
+      {
+        id: 'book_mari_torto_arado',
+        title: 'Torto Arado',
+        author: 'Itamar Vieira Junior',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9786580309313-L.jpg',
+        shelf: 'reading',
+        rating: 0,
+        progress: 54,
+        synopsis: 'Nas profundezas do sertão baiano, as irmãs Bibiana e Belonísia encontram uma antiga faca na mala da avó e um acidente sela seus destinos para sempre.',
+        review: 'Relendo para o debate de Literatura Brasileira deste mês no clube. Cada releitura revela novos detalhes sobre memória e ancestralidade.',
+        isbn: '9786580309313',
+        createdAt: now
+      },
+      {
+        id: 'book_mari_quarto_despejo',
+        title: 'Quarto de Despejo',
+        author: 'Carolina Maria de Jesus',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788508171279-L.jpg',
+        shelf: 'read',
+        rating: 5,
+        progress: 100,
+        synopsis: 'O diário real de Carolina Maria de Jesus retratando com lucidez, poesia e força a rotina na favela do Canindé, em São Paulo, na década de 1950.',
+        review: 'Clássico indispensável da literatura brasileira. Leitura forte, poética e necessária para todo leitor.',
+        isbn: '9788508171279',
+        createdAt: now
+      },
+      {
+        id: 'book_mari_vidas_secas',
+        title: 'Vidas Secas',
+        author: 'Graciliano Ramos',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788501012074-L.jpg',
+        shelf: 'wishlist',
+        rating: 0,
+        progress: 0,
+        synopsis: 'A saga de Fabiano, Sinhá Vitória, os dois meninos e a cadela Baleia enfrentando a aridez do sertão nordestino.',
+        review: 'Próxima leitura do projeto de clássicos da literatura brasileira.',
+        isbn: '9788501012074',
+        createdAt: now
+      }
+    ]
+  };
+
+  const lucasAccount = {
+    userId: 'demo_lucasbooks',
+    email: 'lucas@naminhaestante.app',
+    password: '123456',
+    profile: {
+      name: 'Lucas Almeida',
+      username: 'lucas.books',
+      bio: 'Leitor voraz de ficção científica, fantasia épica e não-ficção. Resenhas diretas ao ponto e indicações semanais.',
+      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
+      instagramUrl: 'https://instagram.com/lucas.books'
+    },
+    clubs: [
+      { id: 'club_lucas_1', emoji: '🚀', name: 'Sci-Fi Brasil', meta: 'Ficção Científica' },
+      { id: 'club_lucas_2', emoji: '📦', name: 'Clube Intrínsecos', meta: 'Assinatura Mensal' }
+    ],
+    books: [
+      {
+        id: 'book_lucas_duna',
+        title: 'Duna',
+        author: 'Frank Herbert',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788576573135-L.jpg',
+        shelf: 'reading',
+        rating: 0,
+        progress: 75,
+        synopsis: 'Em Arrakis, o planeta desértico que guarda a especiaria mais valiosa do universo, Paul Atreides assume seu destino entre intrigas políticas e profecias.',
+        review: 'Construção de mundo absurda! A mistura de ecologia, política e ficção científica continua atual décadas depois.',
+        isbn: '9788576573135',
+        createdAt: now
+      },
+      {
+        id: 'book_lucas_tres_corpos',
+        title: 'O Problema dos Três Corpos',
+        author: 'Cixin Liu',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788556510150-L.jpg',
+        shelf: 'read',
+        rating: 5,
+        progress: 100,
+        synopsis: 'Um projeto militar secreto envia sinais ao espaço e estabelece contato com uma civilização alienígena à beira da destruição.',
+        review: 'Ficção científica hard de altíssimo nível. Te faz questionar física, humanidade e futuro do começo ao fim.',
+        isbn: '9788556510150',
+        createdAt: now
+      },
+      {
+        id: 'book_lucas_fundacao',
+        title: 'Fundação',
+        author: 'Isaac Asimov',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788576570660-L.jpg',
+        shelf: 'wishlist',
+        rating: 0,
+        progress: 0,
+        synopsis: 'O matemático Hari Seldon prevê a queda do Império Galáctico e cria uma fundação para preservar o conhecimento humano.',
+        review: 'Na fila para a maratona de ficção científica clássica.',
+        isbn: '9788576570660',
+        createdAt: now
+      }
+    ]
+  };
+
+  const beatrizAccount = {
+    userId: 'demo_biaentrepaginas',
+    email: 'bia@naminhaestante.app',
+    password: '123456',
+    profile: {
+      name: 'Beatriz Souza',
+      username: 'biaentrepaginas',
+      bio: 'Curadora de romances históricos, suspense policial e thrillers psicológicos de tirar o fôlego.',
+      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+      instagramUrl: 'https://instagram.com/biaentrepaginas'
+    },
+    clubs: [
+      { id: 'club_bia_1', emoji: '🔪', name: 'Clube do Thriller', meta: 'Suspense & Mistério' },
+      { id: 'club_bia_2', emoji: '🕵️', name: 'Mistério & Café', meta: 'Suspense Policial' }
+    ],
+    books: [
+      {
+        id: 'book_bia_paciente',
+        title: 'A Paciente Silenciosa',
+        author: 'Alex Michaelides',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788501116437-L.jpg',
+        shelf: 'reading',
+        rating: 0,
+        progress: 45,
+        synopsis: 'Alicia Berenson atira cinco vezes no rosto do marido e nunca mais pronuncia uma única palavra. Um psicoterapeuta fica obcecado em fazê-la falar.',
+        review: 'Suspense psicológico viciante! Cada sessão de terapia traz uma pista nova e deixa impossível largar antes de dormir.',
+        isbn: '9788501116437',
+        createdAt: now
+      },
+      {
+        id: 'book_bia_evelyn_hugo',
+        title: 'Os Sete Maridos de Evelyn Hugo',
+        author: 'Taylor Jenkins Reid',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788584391509-L.jpg',
+        shelf: 'read',
+        rating: 5,
+        progress: 100,
+        synopsis: 'Aos 79 anos, Evelyn Hugo decide revelar todos os segredos de sua carreira e de seus sete casamentos em Hollywood.',
+        review: 'Favorito absoluto! Drama, segredos e personagens inesquecíveis do primeiro ao último capítulo.',
+        isbn: '9788584391509',
+        createdAt: now
+      },
+      {
+        id: 'book_bia_verity',
+        title: 'Verity',
+        author: 'Colleen Hoover',
+        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788501117847-L.jpg',
+        shelf: 'wishlist',
+        rating: 0,
+        progress: 0,
+        synopsis: 'Lowen Ashleigh é contratada para concluir a série de livros de uma famosa autora incapacitada, mas descobre um manuscrito perturbador.',
+        review: 'Próximo thriller na lista do Clube do Thriller.',
+        isbn: '9788501117847',
+        createdAt: now
+      }
+    ]
+  };
+
+  return [createDemoAccount(), marianaAccount, lucasAccount, beatrizAccount];
+}
+
+function mergeDefaultCommunityAccounts(accounts = []) {
+  const list = Array.isArray(accounts) ? [...accounts] : [];
+  const seen = new Set(list.map((a) => normalizeUsername(a.profile?.username)));
+  for (const communityAcc of createDefaultCommunityAccounts()) {
+    const slug = normalizeUsername(communityAcc.profile?.username);
+    if (slug && !seen.has(slug)) {
+      list.push(communityAcc);
+      seen.add(slug);
+    }
+  }
+  return list;
+}
+
 function createSeedState() {
-  const demo = createDemoAccount();
+  const communityAccounts = createDefaultCommunityAccounts();
+  const demo = communityAccounts[0];
   return {
-    accounts: [demo],
+    accounts: communityAccounts,
     activePublicUsername: demo.profile.username,
     profile: { ...demo.profile },
     clubs: demo.clubs.map((c) => ({ ...c })),
@@ -523,7 +719,7 @@ function commitWorkingStateToOwnerAccount() {
       clubs: [],
       books: []
     };
-    appState.accounts.push(account);
+    appState.accounts.unshift(account);
   }
 
   account.profile = { ...cleanProfile };
@@ -562,10 +758,8 @@ function loadState() {
         }];
       }
 
-      // Garante que o perfil padrão (@leitoracriativa) nunca suma do diretório público
-      if (!accounts.some((a) => normalizeUsername(a.profile?.username) === 'leitoracriativa')) {
-        accounts.unshift(createDemoAccount());
-      }
+      // Garante que os perfis padrão da comunidade nunca sumam do diretório público
+      accounts = mergeDefaultCommunityAccounts(accounts);
 
       const activeUsername = normalizeUsername(parsed.activePublicUsername || parsed.profile?.username) || accounts[0].profile.username;
       const activeAcc = accounts.find((a) => normalizeUsername(a.profile.username) === activeUsername) || accounts[0];
@@ -926,17 +1120,15 @@ window.pullFromSupabase = async function ({ silent = false, targetUsername = nul
         };
       });
 
-      // Mantém o perfil padrão (@leitoracriativa) disponível na listagem caso não esteja no banco
-      if (!dbAccounts.some((a) => normalizeUsername(a.profile?.username) === 'leitoracriativa')) {
-        dbAccounts.unshift(createDemoAccount());
-      }
+      // Mantém os perfis padrão da comunidade disponíveis na listagem caso não estejam no banco
+      const mergedAccounts = mergeDefaultCommunityAccounts(dbAccounts);
 
-      appState.accounts = dbAccounts;
+      appState.accounts = mergedAccounts;
 
       const selectedAcc =
-        (desiredUser && dbAccounts.find((a) => normalizeUsername(a.profile.username) === desiredUser)) ||
-        dbAccounts.find((a) => a.userId !== DEMO_USER_ID) ||
-        dbAccounts[0];
+        (desiredUser && mergedAccounts.find((a) => normalizeUsername(a.profile.username) === desiredUser)) ||
+        mergedAccounts.find((a) => !String(a.userId || '').startsWith('demo_')) ||
+        mergedAccounts[0];
 
       loadAccountIntoWorkingState(selectedAcc);
 
@@ -1321,7 +1513,7 @@ window.handleAuthSignup = async function (event) {
       books: []
     };
 
-    appState.accounts.push(newAccount);
+    appState.accounts.unshift(newAccount);
     setAuthSession({
       userId: newAccount.userId,
       email,
@@ -1662,91 +1854,482 @@ function getCommentsCountForBook(bookId) {
   return (appState.comments || []).filter((c) => c.bookId === bookId).length;
 }
 
+function normalizeSearchText(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function getBookSearchableText(book) {
+  const shelfKeywords =
+    book.shelf === 'reading'
+      ? 'lendo agora leitura atual em andamento'
+      : book.shelf === 'read'
+        ? 'ja lidos recomendados lido resenha'
+        : 'quero ler lista de desejos wishlist';
+  const ratingKeywords = Number(book.rating) > 0 ? `${book.rating} estrelas` : '';
+  return normalizeSearchText([
+    book.title,
+    book.author,
+    book.synopsis,
+    book.review,
+    book.isbn,
+    shelfKeywords,
+    ratingKeywords
+  ].join(' '));
+}
+
+function getAccountSearchableText(acc, comments = []) {
+  const p = acc.profile || {};
+  const clubsText = (acc.clubs || []).map((c) => `${c.name || ''} ${c.meta || ''}`).join(' ');
+  const books = acc.books || [];
+  const bookIds = new Set(books.map((b) => b.id));
+  const booksText = books.map((b) => getBookSearchableText(b)).join(' ');
+  const commentsText = comments
+    .filter((c) => bookIds.has(c.bookId))
+    .map((c) => `${c.authorName || ''} ${c.authorHandle || ''} ${c.text || ''}`)
+    .join(' ');
+
+  return normalizeSearchText([
+    p.name,
+    p.username,
+    `@${p.username || ''}`,
+    p.bio,
+    clubsText,
+    booksText,
+    commentsText
+  ].join(' '));
+}
+
+function updatePlatformSearchControlsUI() {
+  const input = document.getElementById('platform-search-input');
+  if (input && input.value !== platformSearchTerm) {
+    input.value = platformSearchTerm;
+  }
+
+  const clearBtn = document.getElementById('btn-clear-platform-search');
+  if (clearBtn) {
+    clearBtn.classList.toggle('hidden', platformSearchTerm.trim().length === 0);
+  }
+
+  document.querySelectorAll('.platform-scope-tab').forEach((btn) => {
+    const active = btn.dataset.scope === platformSearchScope;
+    btn.className = active
+      ? 'platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-900 text-white dark:bg-amber-500 dark:text-stone-950 shadow-sm'
+      : 'platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-100/80 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700';
+  });
+
+  const activeTopicNorm = normalizeSearchText(platformSearchTerm);
+  document.querySelectorAll('.platform-topic-chip').forEach((btn) => {
+    const chipTopic = normalizeSearchText(btn.dataset.topic || '');
+    const active = chipTopic === activeTopicNorm;
+    btn.className = active
+      ? 'platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-amber-100 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 shadow-2xs'
+      : 'platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700';
+  });
+}
+
+window.handlePlatformSearch = function (term) {
+  platformSearchTerm = String(term || '');
+  renderPublicProfilesDirectory();
+  refreshIcons();
+};
+
+window.clearPlatformSearch = function () {
+  platformSearchTerm = '';
+  const input = document.getElementById('platform-search-input');
+  if (input) input.value = '';
+  renderPublicProfilesDirectory();
+  refreshIcons();
+};
+
+window.setPlatformSearchScope = function (scope) {
+  platformSearchScope = ['all', 'users', 'books', 'topics'].includes(scope) ? scope : 'all';
+  renderPublicProfilesDirectory();
+  refreshIcons();
+};
+
+window.applyPlatformTopicChip = function (topic) {
+  platformSearchTerm = String(topic || '');
+  const input = document.getElementById('platform-search-input');
+  if (input) input.value = platformSearchTerm;
+  renderPublicProfilesDirectory();
+  refreshIcons();
+};
+
+window.openUserBookFromGlobalSearch = function (username, bookId) {
+  const acc = findLocalAccountByUsername(username);
+  if (!acc) return;
+
+  loadAccountIntoWorkingState(acc);
+  saveState();
+
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    try {
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set('u', acc.profile.username);
+      window.history.replaceState(null, '', nextUrl.toString());
+    } catch (_) {}
+  }
+
+  renderAll();
+  openBookModal(bookId);
+};
+
+window.openProfileAndScroll = function (username) {
+  selectPublicProfile(username);
+  const target = document.getElementById('active-profile-card') || document.getElementById('profile-name');
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+};
+
+function renderPlatformSearchResults(accounts, qNorm) {
+  const container = document.getElementById('platform-search-results');
+  if (!container) return;
+
+  const shouldShow =
+    platformSearchScope !== 'users' &&
+    (Boolean(qNorm) || platformSearchScope === 'books' || platformSearchScope === 'topics');
+
+  if (!shouldShow) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  container.classList.remove('hidden');
+
+  const showBooks = platformSearchScope === 'all' || platformSearchScope === 'books';
+  const showTopics = platformSearchScope === 'all' || platformSearchScope === 'topics';
+
+  // Agrega livros de todas as pessoas cadastradas
+  const matchedBooks = [];
+  const bookOwnerMap = new Map();
+
+  for (const acc of accounts) {
+    const ownerName = acc.profile?.name || 'Leitor(a)';
+    const ownerUsername = normalizeUsername(acc.profile?.username) || 'oseunome';
+    for (const book of (acc.books || [])) {
+      bookOwnerMap.set(book.id, { book, ownerName, ownerUsername });
+      if (!showBooks) continue;
+      const haystack = `${getBookSearchableText(book)} ${normalizeSearchText(ownerName)} ${normalizeSearchText(ownerUsername)}`;
+      if (!qNorm || haystack.includes(qNorm)) {
+        matchedBooks.push({ book, ownerName, ownerUsername });
+      }
+    }
+  }
+
+  // Agrega clubes de leitura & assuntos
+  const matchedClubs = [];
+  const matchedComments = [];
+
+  if (showTopics) {
+    for (const acc of accounts) {
+      const ownerName = acc.profile?.name || 'Leitor(a)';
+      const ownerUsername = normalizeUsername(acc.profile?.username) || 'oseunome';
+      for (const club of (acc.clubs || [])) {
+        const clubHaystack = normalizeSearchText(`${club.name || ''} ${club.meta || ''} ${ownerName} @${ownerUsername}`);
+        if (!qNorm || clubHaystack.includes(qNorm)) {
+          matchedClubs.push({ club, ownerName, ownerUsername });
+        }
+      }
+    }
+
+    for (const c of (appState.comments || [])) {
+      const ref = bookOwnerMap.get(c.bookId);
+      if (!ref) continue;
+      const commentHaystack = normalizeSearchText(
+        `${c.text || ''} ${c.authorName || ''} ${c.authorHandle || ''} ${ref.book.title || ''} ${ref.book.author || ''} @${ref.ownerUsername}`
+      );
+      if (!qNorm || commentHaystack.includes(qNorm)) {
+        matchedComments.push({
+          comment: c,
+          book: ref.book,
+          ownerName: ref.ownerName,
+          ownerUsername: ref.ownerUsername
+        });
+      }
+    }
+  }
+
+  const sectionsHtml = [];
+
+  if (showBooks) {
+    const booksHtml = matchedBooks.length > 0
+      ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          ${matchedBooks.map(({ book, ownerName, ownerUsername }) => {
+            const coverSrc = safeUrl(book.coverUrl, '') || buildFallbackCoverDataUri(book.title, book.author);
+            const shelfMeta = getShelfMeta(book.shelf);
+            const amazonHref = buildAmazonUrl(book);
+            return `
+              <div class="flex gap-3 p-3 rounded-2xl bg-paper-50 dark:bg-stone-800/60 border border-stone-200/80 dark:border-stone-700/80 items-start">
+                <button type="button" onclick="openUserBookFromGlobalSearch('${escapeHtml(ownerUsername)}', '${escapeHtml(book.id)}')"
+                  class="w-14 aspect-[2/3] rounded-lg overflow-hidden shadow-sm shrink-0 bg-stone-200 dark:bg-stone-700">
+                  <img src="${escapeHtml(coverSrc)}" alt="${escapeHtml(book.title)}"
+                    onerror="handleBookCoverError(this, '${escapeHtml(book.title)}', '${escapeHtml(book.author)}')"
+                    class="w-full h-full object-cover" />
+                </button>
+                <div class="flex-1 min-w-0 space-y-1.5">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${shelfMeta.badgeClass}">
+                      ${escapeHtml(shelfMeta.label)}
+                    </span>
+                    ${Number(book.rating) > 0 ? renderStars(book.rating, 'w-3 h-3') : ''}
+                  </div>
+                  <div>
+                    <h4 onclick="openUserBookFromGlobalSearch('${escapeHtml(ownerUsername)}', '${escapeHtml(book.id)}')"
+                      class="cursor-pointer font-serif font-bold text-sm text-stone-900 dark:text-white hover:text-terracotta-600 dark:hover:text-amber-400 transition line-clamp-1">
+                      ${escapeHtml(book.title)}
+                    </h4>
+                    <p class="text-xs text-stone-500 dark:text-stone-400 truncate">${escapeHtml(book.author)}</p>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <button type="button" onclick="openProfileAndScroll('${escapeHtml(ownerUsername)}')"
+                      class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-[11px] font-semibold text-stone-700 dark:text-stone-200 hover:border-amber-400 transition">
+                      <span>👤</span>
+                      <span>@${escapeHtml(ownerUsername)}</span>
+                    </button>
+                    <button type="button" onclick="openUserBookFromGlobalSearch('${escapeHtml(ownerUsername)}', '${escapeHtml(book.id)}')"
+                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-stone-900 hover:bg-stone-800 dark:bg-stone-700 dark:hover:bg-stone-600 text-white text-[11px] font-semibold transition">
+                      Ver Livro
+                    </button>
+                    <a href="${escapeHtml(amazonHref)}" target="_blank" rel="noopener noreferrer"
+                      class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-stone-950 text-[11px] font-bold transition">
+                      Amazon
+                    </a>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>`
+      : `<p class="text-xs text-stone-500 dark:text-stone-400 italic">Nenhum livro ou autor encontrado para essa busca.</p>`;
+
+    sectionsHtml.push(`
+      <div class="space-y-2.5">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300 flex items-center gap-1.5">
+            <span>📚</span>
+            <span>Livros &amp; Autores nas Estantes (${matchedBooks.length})</span>
+          </h3>
+        </div>
+        ${booksHtml}
+      </div>
+    `);
+  }
+
+  if (showTopics) {
+    const clubsHtml = matchedClubs.length > 0
+      ? `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          ${matchedClubs.map(({ club, ownerName, ownerUsername }) => {
+            const clubLink = safeUrl(club.meta, '');
+            const metaText = club.meta && !clubLink ? club.meta : '';
+            return `
+              <button type="button" onclick="openProfileAndScroll('${escapeHtml(ownerUsername)}')"
+                class="text-left p-3 rounded-2xl bg-paper-50 hover:bg-white dark:bg-stone-800/60 dark:hover:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 transition flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="w-9 h-9 rounded-xl bg-amber-100/80 dark:bg-amber-950/60 flex items-center justify-center text-base shrink-0">${escapeHtml(club.emoji || '📚')}</span>
+                  <div class="min-w-0">
+                    <p class="font-semibold text-xs sm:text-sm text-stone-900 dark:text-white truncate">${escapeHtml(club.name)}</p>
+                    <p class="text-[11px] text-stone-500 dark:text-stone-400 truncate">
+                      ${metaText ? `${escapeHtml(metaText)} • ` : ''}por @${escapeHtml(ownerUsername)} (${escapeHtml(ownerName)})
+                    </p>
+                  </div>
+                </div>
+                <span class="shrink-0 text-[11px] font-bold text-amber-700 dark:text-amber-400">Ver →</span>
+              </button>
+            `;
+          }).join('')}
+        </div>`
+      : '';
+
+    const commentsHtml = matchedComments.length > 0
+      ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          ${matchedComments.map(({ comment, book, ownerUsername }) => `
+            <div class="p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/60 border border-stone-200/70 dark:border-stone-700/70 space-y-1.5">
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span class="font-bold text-stone-900 dark:text-white truncate">${escapeHtml(comment.authorName)}</span>
+                  ${comment.authorHandle ? `<span class="text-amber-700 dark:text-amber-400 font-medium truncate">${escapeHtml(comment.authorHandle)}</span>` : ''}
+                </div>
+                ${Number(comment.rating) > 0 ? renderStars(comment.rating, 'w-3 h-3') : ''}
+              </div>
+              <p class="text-xs text-stone-600 dark:text-stone-300 line-clamp-2">"${escapeHtml(comment.text)}"</p>
+              <div class="flex items-center justify-between gap-2 pt-0.5 text-[11px]">
+                <span class="text-stone-500 dark:text-stone-400 truncate">Em <strong>${escapeHtml(book.title)}</strong> (@${escapeHtml(ownerUsername)})</span>
+                <button type="button" onclick="openUserBookFromGlobalSearch('${escapeHtml(ownerUsername)}', '${escapeHtml(book.id)}')"
+                  class="shrink-0 font-bold text-amber-700 dark:text-amber-400 hover:underline">
+                  Ir para discussão
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>`
+      : '';
+
+    const emptyTopics = matchedClubs.length === 0 && matchedComments.length === 0
+      ? '<p class="text-xs text-stone-500 dark:text-stone-400 italic">Nenhum clube de leitura, comentário ou assunto encontrado para essa busca.</p>'
+      : '';
+
+    sectionsHtml.push(`
+      <div class="space-y-3">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300 flex items-center gap-1.5">
+          <span>🏅</span>
+          <span>Clubes de Leitura, Comentários &amp; Assuntos (${matchedClubs.length + matchedComments.length})</span>
+        </h3>
+        ${clubsHtml}
+        ${commentsHtml}
+        ${emptyTopics}
+      </div>
+    `);
+  }
+
+  container.innerHTML = sectionsHtml.join('');
+}
+
 function renderPublicProfilesDirectory() {
   const listEl = document.getElementById('public-profiles-list');
   const countEl = document.getElementById('public-profiles-count');
   if (!listEl) return;
 
+  updatePlatformSearchControlsUI();
+
   const accounts = appState?.accounts || [];
+  const comments = appState?.comments || [];
   const activeSlug = normalizeUsername(appState?.profile?.username);
+  const qNorm = normalizeSearchText(platformSearchTerm);
+
+  const filteredAccounts = qNorm
+    ? accounts.filter((acc) => getAccountSearchableText(acc, comments).includes(qNorm))
+    : accounts;
 
   if (countEl) {
-    countEl.textContent = `${accounts.length} ${accounts.length === 1 ? 'perfil ativo' : 'perfis ativos'}`;
+    countEl.textContent = qNorm
+      ? `${filteredAccounts.length} de ${accounts.length} ${accounts.length === 1 ? 'perfil' : 'perfis'}`
+      : `${accounts.length} ${accounts.length === 1 ? 'perfil ativo' : 'perfis ativos'}`;
   }
 
-  const profileCardsHtml = accounts.map((acc) => {
-    const p = acc.profile || {};
-    const slug = normalizeUsername(p.username) || 'oseunome';
-    const isActive = slug === activeSlug;
-    const bookCount = Array.isArray(acc.books) ? acc.books.length : 0;
-    const avatarSrc = safeUrl(p.avatarUrl, '');
-    const initials = escapeHtml(
-      (p.name || slug || 'NM')
-        .split(/\s+/)
-        .slice(0, 2)
-        .map((part) => part[0] || '')
-        .join('')
-        .toUpperCase()
-    );
+  const showUsersGrid = platformSearchScope === 'all' || platformSearchScope === 'users';
+  listEl.classList.toggle('hidden', !showUsersGrid);
 
-    const avatarHtml = avatarSrc
-      ? `<img src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(p.name || slug)}" onerror="handleAvatarError(this, '${escapeHtml(p.name || slug)}')" class="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover ring-4 ring-paper-100 dark:ring-stone-700 shadow-md shrink-0 bg-stone-200 dark:bg-stone-700" />`
-      : `<div class="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-terracotta-500 text-white font-serif font-bold text-xl flex items-center justify-center ring-4 ring-paper-100 dark:ring-stone-700 shadow-md shrink-0">${initials}</div>`;
+  if (showUsersGrid) {
+    const profileCardsHtml = filteredAccounts.map((acc) => {
+      const p = acc.profile || {};
+      const slug = normalizeUsername(p.username) || 'oseunome';
+      const isActive = slug === activeSlug;
+      const books = Array.isArray(acc.books) ? acc.books : [];
+      const clubs = Array.isArray(acc.clubs) ? acc.clubs : [];
+      const bookCount = books.length;
+      const currentReading = books.find((b) => b.shelf === 'reading');
+      const avatarSrc = safeUrl(p.avatarUrl, '');
+      const initials = escapeHtml(
+        (p.name || slug || 'NM')
+          .split(/\s+/)
+          .slice(0, 2)
+          .map((part) => part[0] || '')
+          .join('')
+          .toUpperCase()
+      );
 
-    return `
-      <button type="button" onclick="selectPublicProfile('${escapeHtml(slug)}')"
-        class="group relative aspect-[2/3] rounded-2xl p-4 border flex flex-col items-center justify-between text-center transition ${
-          isActive
-            ? 'bg-gradient-to-b from-amber-50 to-white dark:from-amber-950/40 dark:to-stone-900 border-amber-400 dark:border-amber-600 shadow-soft ring-2 ring-amber-400/40'
-            : 'bg-paper-50 hover:bg-white dark:bg-stone-800/60 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 hover:shadow-soft'
-        }">
-        <div class="w-full flex justify-end min-h-[1.25rem]">
-          ${isActive
-            ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-stone-950">Ativa</span>'
-            : '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-stone-200/70 dark:bg-stone-700/70 text-stone-600 dark:text-stone-300 opacity-80 group-hover:opacity-100">Perfil</span>'}
-        </div>
+      const avatarHtml = avatarSrc
+        ? `<img src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(p.name || slug)}" onerror="handleAvatarError(this, '${escapeHtml(p.name || slug)}')" class="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover ring-4 ring-paper-100 dark:ring-stone-700 shadow-md shrink-0 bg-stone-200 dark:bg-stone-700" />`
+        : `<div class="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-terracotta-500 text-white font-serif font-bold text-xl flex items-center justify-center ring-4 ring-paper-100 dark:ring-stone-700 shadow-md shrink-0">${initials}</div>`;
 
-        <div class="flex flex-col items-center gap-2 min-w-0 w-full">
-          ${avatarHtml}
-          <div class="min-w-0 w-full space-y-0.5">
-            <h3 class="font-serif font-bold text-sm sm:text-base text-stone-900 dark:text-white line-clamp-1">${escapeHtml(p.name || slug)}</h3>
-            <p class="text-xs font-semibold text-amber-700 dark:text-amber-400 truncate">@${escapeHtml(slug)}</p>
-          </div>
-          <p class="text-[11px] text-stone-500 dark:text-stone-400 line-clamp-2 leading-snug px-1">
-            ${escapeHtml(p.bio || 'Estante literária aberta para recomendações e leituras.')}
-          </p>
-        </div>
+      const visibleClubs = clubs.slice(0, 2);
+      const extraClubs = clubs.length > 2 ? clubs.length - 2 : 0;
+      const clubsBadgesHtml = visibleClubs.length > 0
+        ? `<div class="flex flex-wrap items-center justify-center gap-1 w-full">
+            ${visibleClubs.map((c) => `
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 text-[10px] font-medium text-stone-700 dark:text-stone-300 max-w-full truncate">
+                <span>${escapeHtml(c.emoji || '📚')}</span>
+                <span class="truncate">${escapeHtml(c.name)}</span>
+              </span>
+            `).join('')}
+            ${extraClubs > 0 ? `<span class="text-[10px] font-semibold text-stone-400">+${extraClubs}</span>` : ''}
+          </div>`
+        : '';
 
-        <div class="w-full space-y-2">
-          <span class="inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 text-[11px] font-semibold text-stone-700 dark:text-stone-200">
-            📚 ${bookCount} ${bookCount === 1 ? 'livro' : 'livros'} na estante
-          </span>
-          <div class="w-full py-1.5 rounded-xl text-xs font-bold transition ${
+      const readingBadgeHtml = currentReading
+        ? `<div class="w-full px-2.5 py-1 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/70 dark:border-amber-800/50 text-[10px] font-semibold text-amber-900 dark:text-amber-200 truncate">
+            📖 Lendo: ${escapeHtml(currentReading.title)}
+          </div>`
+        : '';
+
+      return `
+        <button type="button" onclick="selectPublicProfile('${escapeHtml(slug)}')"
+          class="group relative min-h-[310px] h-full rounded-2xl p-4 border flex flex-col items-center justify-between gap-2.5 text-center transition ${
             isActive
-              ? 'bg-stone-900 text-white dark:bg-amber-500 dark:text-stone-950'
-              : 'bg-stone-100 group-hover:bg-amber-500 text-stone-700 group-hover:text-stone-950 dark:bg-stone-700 dark:text-stone-200 dark:group-hover:bg-amber-500 dark:group-hover:text-stone-950'
+              ? 'bg-gradient-to-b from-amber-50 to-white dark:from-amber-950/40 dark:to-stone-900 border-amber-400 dark:border-amber-600 shadow-soft ring-2 ring-amber-400/40'
+              : 'bg-paper-50 hover:bg-white dark:bg-stone-800/60 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 hover:shadow-soft'
           }">
-            ${isActive ? '✓ Selecionada' : 'Ver Estante'}
+          <div class="w-full flex justify-end min-h-[1.25rem]">
+            ${isActive
+              ? '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-stone-950">✓ Estante Ativa</span>'
+              : '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-stone-200/70 dark:bg-stone-700/70 text-stone-600 dark:text-stone-300 opacity-85 group-hover:opacity-100">Perfil</span>'}
           </div>
+
+          <div class="flex flex-col items-center gap-2 min-w-0 w-full">
+            ${avatarHtml}
+            <div class="min-w-0 w-full space-y-0.5">
+              <h3 class="font-serif font-bold text-sm sm:text-base text-stone-900 dark:text-white line-clamp-1">${escapeHtml(p.name || slug)}</h3>
+              <p class="text-xs font-semibold text-amber-700 dark:text-amber-400 truncate">@${escapeHtml(slug)}</p>
+            </div>
+            <p class="text-[11px] text-stone-500 dark:text-stone-400 line-clamp-2 leading-snug px-1">
+              ${escapeHtml(p.bio || 'Estante literária aberta para recomendações e leituras.')}
+            </p>
+            ${clubsBadgesHtml}
+            ${readingBadgeHtml}
+          </div>
+
+          <div class="w-full space-y-2 pt-1">
+            <span class="inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 text-[11px] font-semibold text-stone-700 dark:text-stone-200">
+              📚 ${bookCount} ${bookCount === 1 ? 'livro' : 'livros'} na estante
+            </span>
+            <div class="w-full py-1.5 rounded-xl text-xs font-bold transition ${
+              isActive
+                ? 'bg-stone-900 text-white dark:bg-amber-500 dark:text-stone-950'
+                : 'bg-stone-100 group-hover:bg-amber-500 text-stone-700 group-hover:text-stone-950 dark:bg-stone-700 dark:text-stone-200 dark:group-hover:bg-amber-500 dark:group-hover:text-stone-950'
+            }">
+              ${isActive ? '✓ Selecionada' : 'Ver Estante'}
+            </div>
+          </div>
+        </button>
+      `;
+    }).join('');
+
+    const emptyUsersHtml = filteredAccounts.length === 0
+      ? `<div class="col-span-full rounded-2xl p-6 border border-dashed border-stone-300 dark:border-stone-700 text-center space-y-2 bg-stone-50/70 dark:bg-stone-800/40">
+          <p class="text-sm font-semibold text-stone-700 dark:text-stone-200">Nenhuma pessoa encontrada para "${escapeHtml(platformSearchTerm.trim())}"</p>
+          <p class="text-xs text-stone-500 dark:text-stone-400">Tente buscar outro nome, @usuario, livro ou assunto.</p>
+          <button type="button" onclick="clearPlatformSearch()"
+            class="mt-1 inline-flex items-center px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition">
+            Limpar busca
+          </button>
+        </div>`
+      : '';
+
+    const addProfileCardHtml = `
+      <button type="button" onclick="openAuthModal('signup')"
+        class="group min-h-[310px] h-full rounded-2xl p-4 border-2 border-dashed border-stone-300 hover:border-amber-500 dark:border-stone-700 dark:hover:border-amber-500 bg-stone-50/50 hover:bg-amber-50/40 dark:bg-stone-900/40 dark:hover:bg-amber-950/20 flex flex-col items-center justify-center text-center gap-3 transition">
+        <div class="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center text-2xl shadow-xs group-hover:scale-105 transition">
+          ➕
+        </div>
+        <div class="space-y-1">
+          <p class="font-serif font-bold text-sm sm:text-base text-stone-800 dark:text-stone-100">Criar Meu Perfil</p>
+          <p class="text-[11px] text-stone-500 dark:text-stone-400 leading-snug px-2">Cadastre sua estante e apareça aqui na vitrine</p>
         </div>
       </button>
     `;
-  }).join('');
 
-  const addProfileCardHtml = `
-    <button type="button" onclick="openAuthModal('signup')"
-      class="group aspect-[2/3] rounded-2xl p-4 border-2 border-dashed border-stone-300 hover:border-amber-500 dark:border-stone-700 dark:hover:border-amber-500 bg-stone-50/50 hover:bg-amber-50/40 dark:bg-stone-900/40 dark:hover:bg-amber-950/20 flex flex-col items-center justify-center text-center gap-3 transition">
-      <div class="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center text-2xl shadow-xs group-hover:scale-105 transition">
-        ➕
-      </div>
-      <div class="space-y-1">
-        <p class="font-serif font-bold text-sm sm:text-base text-stone-800 dark:text-stone-100">Criar Meu Perfil</p>
-        <p class="text-[11px] text-stone-500 dark:text-stone-400 leading-snug px-2">Cadastre sua estante e apareça aqui na vitrine</p>
-      </div>
-    </button>
-  `;
+    listEl.innerHTML = filteredAccounts.length > 0
+      ? profileCardsHtml + addProfileCardHtml
+      : emptyUsersHtml;
+  }
 
-  listEl.innerHTML = profileCardsHtml + addProfileCardHtml;
+  renderPlatformSearchResults(accounts, qNorm);
 }
 
 window.selectPublicProfile = function (username) {
@@ -2728,7 +3311,7 @@ window.handleSaveProfile = async function (event) {
       clubs: [],
       books: customBooks
     };
-    appState.accounts.push(newAccount);
+    appState.accounts.unshift(newAccount);
     setAuthSession({
       userId: newAccount.userId,
       email: newAccount.email,
