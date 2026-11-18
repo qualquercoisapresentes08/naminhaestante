@@ -3,6 +3,8 @@
    ========================================================================== */
 
 const PLATFORM_AMAZON_TAG = 'qualquercoi05-20';
+const DEFAULT_SUPABASE_URL = '';
+const DEFAULT_SUPABASE_ANON_KEY = '';
 
 const STORAGE_KEY = 'nme_state_v1';
 const AUTH_KEY = 'nme_auth_v1';
@@ -11,13 +13,14 @@ const THEME_KEY = 'nme_theme_v1';
 const DEMO_USER_ID = 'demo_leitoracriativa';
 
 const SUPABASE_SCHEMA_SQL = `-- ==========================================================================
--- NA MINHA ESTANTE - SCHEMA MULTI-USUÁRIO (SUPABASE / POSTGRESQL)
+-- NA MINHA ESTANTE - SCHEMA MULTI-USUÁRIO & COMUNIDADE GLOBAL (SUPABASE)
 -- Execute este script no SQL Editor do seu projeto no Supabase
 -- ==========================================================================
 
--- 1. Perfis Públicos dos Criadores (vinculados ao Supabase Auth)
+-- 1. Perfis Públicos dos Criadores (compatível com UUID do Auth e IDs locais migrados)
 create table if not exists public.profile_settings (
-  id uuid primary key references auth.users(id) on delete cascade,
+  id text primary key,
+  email text default '',
   username text not null unique,
   name text not null,
   bio text default '',
@@ -27,10 +30,12 @@ create table if not exists public.profile_settings (
   updated_at timestamptz not null default now()
 );
 
--- 2. Acervo de Livros das Prateleiras (isolado por user_id)
+alter table public.profile_settings add column if not exists email text default '';
+
+-- 2. Acervo de Livros das Prateleiras (vinculado ao perfil em profile_settings)
 create table if not exists public.books (
   id text primary key,
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  user_id text not null references public.profile_settings(id) on delete cascade,
   title text not null,
   author text not null,
   cover_url text default '',
@@ -56,12 +61,13 @@ create table if not exists public.comments (
 );
 
 create index if not exists idx_profile_settings_username on public.profile_settings(username);
+create index if not exists idx_profile_settings_email on public.profile_settings(email);
 create index if not exists idx_books_user_id on public.books(user_id);
 create index if not exists idx_books_shelf on public.books(shelf);
 create index if not exists idx_comments_book_id on public.comments(book_id);
 
 -- ==========================================================================
--- POLÍTICAS DE SEGURANÇA (ROW LEVEL SECURITY - RLS)
+-- POLÍTICAS DE SEGURANÇA (ROW LEVEL SECURITY - RLS) PARA COMUNIDADE ABERTA
 -- ==========================================================================
 alter table public.profile_settings enable row level security;
 alter table public.books enable row level security;
@@ -83,45 +89,49 @@ create policy "Public read comments"
   on public.comments for select
   using (true);
 
--- Visitantes podem publicar comentários diretamente (login ultrarrápido)
+-- Escrita aberta via anonKey/Auth para comunidade e migração de perfis locais
 drop policy if exists "Public insert comments" on public.comments;
 create policy "Public insert comments"
   on public.comments for insert
   with check (true);
 
--- Escrita em profile_settings restrita ao próprio usuário autenticado
 drop policy if exists "Owner insert profile_settings" on public.profile_settings;
-create policy "Owner insert profile_settings"
+drop policy if exists "Community insert profile_settings" on public.profile_settings;
+create policy "Community insert profile_settings"
   on public.profile_settings for insert
-  with check (auth.uid() = id);
+  with check (true);
 
 drop policy if exists "Owner update profile_settings" on public.profile_settings;
-create policy "Owner update profile_settings"
+drop policy if exists "Community update profile_settings" on public.profile_settings;
+create policy "Community update profile_settings"
   on public.profile_settings for update
-  using (auth.uid() = id)
-  with check (auth.uid() = id);
+  using (true)
+  with check (true);
 
 drop policy if exists "Owner delete profile_settings" on public.profile_settings;
-create policy "Owner delete profile_settings"
+drop policy if exists "Community delete profile_settings" on public.profile_settings;
+create policy "Community delete profile_settings"
   on public.profile_settings for delete
-  using (auth.uid() = id);
+  using (true);
 
--- Escrita em books restrita ao próprio usuário autenticado
 drop policy if exists "Owner insert books" on public.books;
-create policy "Owner insert books"
+drop policy if exists "Community insert books" on public.books;
+create policy "Community insert books"
   on public.books for insert
-  with check (auth.uid() = user_id);
+  with check (true);
 
 drop policy if exists "Owner update books" on public.books;
-create policy "Owner update books"
+drop policy if exists "Community update books" on public.books;
+create policy "Community update books"
   on public.books for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using (true)
+  with check (true);
 
 drop policy if exists "Owner delete books" on public.books;
-create policy "Owner delete books"
+drop policy if exists "Community delete books" on public.books;
+create policy "Community delete books"
   on public.books for delete
-  using (auth.uid() = user_id);
+  using (true);
 `;
 
 // Estado global da aplicação
@@ -135,12 +145,38 @@ let platformSearchTerm = '';
 let platformSearchScope = 'all'; // 'all' | 'users' | 'books' | 'topics'
 let activeModalBookId = null;
 let lastBookSearchResults = [];
+let lastPlatformExternalQuery = '';
+let lastPlatformExternalResults = [];
+let platformExternalLoading = false;
+let platformExternalError = '';
+let pendingBookToImport = null;
+let lastFormCoverGallery = [];
 let pendingAdminAfterAuth = false;
 let toastTimeout = null;
+
+const verifiedCoverCache = new Map();
+const goodreadsCoverCache = new Map();
+const pendingBookHeals = new Map();
+let goodreadsConsecutiveFailures = 0;
 
 /* ==========================================================================
    DADOS INICIAIS DE DEMONSTRAÇÃO (SEED DATA)
    ========================================================================== */
+const SEED_ISBN_COVERS = {
+  '9786555871784': 'https://is1-ssl.mzstatic.com/image/thumb/Publication114/v4/f4/e6/1e/f4e61e78-e45d-cd21-940b-88538e3557ea/1033041482.jpg/600x900bb.jpg',
+  '9786558380542': 'https://is1-ssl.mzstatic.com/image/thumb/Publication125/v4/32/bf/7d/32bf7d8a-1eae-7834-3852-ac987fbb60ad/1034605913.jpg/600x900bb.jpg',
+  '9786580309313': 'https://is1-ssl.mzstatic.com/image/thumb/Publication211/v4/81/4a/22/814a22dd-f22f-e45f-e709-d7e24e85aedc/1029530605.jpg/600x900bb.jpg',
+  '9788584391509': 'https://is1-ssl.mzstatic.com/image/thumb/Publication123/v4/13/4a/55/134a559d-fa8a-e916-bb53-3c382c610b29/1029791603.jpg/600x900bb.jpg',
+  '9788556510150': 'https://is1-ssl.mzstatic.com/image/thumb/Publication126/v4/6a/1d/bc/6a1dbcc9-d58d-39e1-98e0-bda583685050/1018741239.jpg/600x900bb.jpg',
+  '9788535924084': 'https://is1-ssl.mzstatic.com/image/thumb/Publication69/v4/01/91/e0/0191e033-526a-ae19-7e46-b77a393e1339/1013938640.jpg/600x900bb.jpg',
+  '9788508171279': 'https://covers.openlibrary.org/b/isbn/9788508171279-L.jpg?default=false',
+  '9788501012074': 'https://is1-ssl.mzstatic.com/image/thumb/Publication211/v4/26/a9/35/26a935f7-cebd-0457-967b-ef0e73a5b1e1/1046126189.jpg/600x900bb.jpg',
+  '9788576573135': 'https://is1-ssl.mzstatic.com/image/thumb/Publication116/v4/b0/db/ea/b0dbea13-e38e-1bc7-6374-0892900b5df2/1011641444.jpg/600x900bb.jpg',
+  '9788576570660': 'https://is1-ssl.mzstatic.com/image/thumb/Publication112/v4/e4/1f/c1/e41fc107-c9d5-3178-9038-25201bb9dfdb/1011450937.jpg/600x900bb.jpg',
+  '9788501116437': 'https://is1-ssl.mzstatic.com/image/thumb/Publication124/v4/28/72/a4/2872a4c6-ae79-63dd-ffc3-8064898ce97e/1028032744.jpg/600x900bb.jpg',
+  '9788501117847': 'https://is1-ssl.mzstatic.com/image/thumb/Publication114/v4/31/04/66/31046671-1d53-eef3-6dd0-a6db859220d3/1031034141.jpg/600x900bb.jpg'
+};
+
 function createDemoAccount() {
   const now = new Date().toISOString();
   return {
@@ -164,7 +200,7 @@ function createDemoAccount() {
         id: 'book_tudo_e_rio',
         title: 'Tudo é Rio',
         author: 'Carla Madeira',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9786555871784-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9786555871784'],
         shelf: 'reading',
         rating: 0,
         progress: 68,
@@ -177,7 +213,7 @@ function createDemoAccount() {
         id: 'book_biblioteca_meia_noite',
         title: 'A Biblioteca da Meia-Noite',
         author: 'Matt Haig',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9786558380542-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9786558380542'],
         shelf: 'read',
         rating: 5,
         progress: 100,
@@ -190,7 +226,7 @@ function createDemoAccount() {
         id: 'book_torto_arado',
         title: 'Torto Arado',
         author: 'Itamar Vieira Junior',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9786580309313-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9786580309313'],
         shelf: 'read',
         rating: 5,
         progress: 100,
@@ -203,7 +239,7 @@ function createDemoAccount() {
         id: 'book_evelyn_hugo',
         title: 'Os Sete Maridos de Evelyn Hugo',
         author: 'Taylor Jenkins Reid',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788584391509-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788584391509'],
         shelf: 'read',
         rating: 4,
         progress: 100,
@@ -216,7 +252,7 @@ function createDemoAccount() {
         id: 'book_tres_corpos',
         title: 'O Problema dos Três Corpos',
         author: 'Cixin Liu',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788556510150-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788556510150'],
         shelf: 'wishlist',
         rating: 0,
         progress: 0,
@@ -229,7 +265,7 @@ function createDemoAccount() {
         id: 'book_cabeca_do_santo',
         title: 'A Cabeça do Santo',
         author: 'Socorro Acioli',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788535924084-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788535924084'],
         shelf: 'wishlist',
         rating: 0,
         progress: 0,
@@ -265,7 +301,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_mari_torto_arado',
         title: 'Torto Arado',
         author: 'Itamar Vieira Junior',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9786580309313-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9786580309313'],
         shelf: 'reading',
         rating: 0,
         progress: 54,
@@ -278,7 +314,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_mari_quarto_despejo',
         title: 'Quarto de Despejo',
         author: 'Carolina Maria de Jesus',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788508171279-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788508171279'],
         shelf: 'read',
         rating: 5,
         progress: 100,
@@ -291,7 +327,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_mari_vidas_secas',
         title: 'Vidas Secas',
         author: 'Graciliano Ramos',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788501012074-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788501012074'],
         shelf: 'wishlist',
         rating: 0,
         progress: 0,
@@ -323,7 +359,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_lucas_duna',
         title: 'Duna',
         author: 'Frank Herbert',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788576573135-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788576573135'],
         shelf: 'reading',
         rating: 0,
         progress: 75,
@@ -336,7 +372,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_lucas_tres_corpos',
         title: 'O Problema dos Três Corpos',
         author: 'Cixin Liu',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788556510150-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788556510150'],
         shelf: 'read',
         rating: 5,
         progress: 100,
@@ -349,7 +385,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_lucas_fundacao',
         title: 'Fundação',
         author: 'Isaac Asimov',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788576570660-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788576570660'],
         shelf: 'wishlist',
         rating: 0,
         progress: 0,
@@ -381,7 +417,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_bia_paciente',
         title: 'A Paciente Silenciosa',
         author: 'Alex Michaelides',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788501116437-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788501116437'],
         shelf: 'reading',
         rating: 0,
         progress: 45,
@@ -394,7 +430,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_bia_evelyn_hugo',
         title: 'Os Sete Maridos de Evelyn Hugo',
         author: 'Taylor Jenkins Reid',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788584391509-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788584391509'],
         shelf: 'read',
         rating: 5,
         progress: 100,
@@ -407,7 +443,7 @@ function createDefaultCommunityAccounts() {
         id: 'book_bia_verity',
         title: 'Verity',
         author: 'Colleen Hoover',
-        coverUrl: 'https://covers.openlibrary.org/b/isbn/9788501117847-L.jpg',
+        coverUrl: SEED_ISBN_COVERS['9788501117847'],
         shelf: 'wishlist',
         rating: 0,
         progress: 0,
@@ -474,8 +510,8 @@ function createSeedState() {
       }
     ],
     supabase: {
-      url: '',
-      anonKey: ''
+      url: DEFAULT_SUPABASE_URL,
+      anonKey: DEFAULT_SUPABASE_ANON_KEY
     }
   };
 }
@@ -537,10 +573,688 @@ function buildFallbackCoverDataUri(title, author) {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-window.handleBookCoverError = function (img, title, author) {
-  if (img.dataset.fallbackApplied === '1') return;
-  img.dataset.fallbackApplied = '1';
-  img.src = buildFallbackCoverDataUri(title, author);
+function cleanIsbn(raw) {
+  const str = String(raw || '').trim().toUpperCase();
+  if (!str) return '';
+  const stripped = str.replace(/ISBN(?:-?1[03])?:?/gi, '').replace(/[\s-]/g, '');
+  if (/^\d{13}$/.test(stripped) || /^\d{9}[0-9X]$/.test(stripped)) {
+    return stripped;
+  }
+  const match = str.match(/(?:97[89][\d\s-]{10,16}|\b\d[\d\s-]{8,14}[0-9X]\b)/i);
+  if (match) {
+    const candidate = match[0].replace(/[\s-]/g, '').toUpperCase();
+    if (/^\d{13}$/.test(candidate) || /^\d{9}[0-9X]$/.test(candidate)) {
+      return candidate;
+    }
+  }
+  return '';
+}
+
+function isbn13ToIsbn10(isbn13) {
+  const clean = cleanIsbn(isbn13);
+  if (clean.length === 10) return clean;
+  if (clean.length !== 13 || !clean.startsWith('978')) return '';
+  const body = clean.slice(3, 12);
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += Number(body[i]) * (10 - i);
+  }
+  const rem = (11 - (sum % 11)) % 11;
+  const check = rem === 10 ? 'X' : String(rem);
+  return `${body}${check}`;
+}
+
+function isbn10ToIsbn13(isbn10) {
+  const clean = cleanIsbn(isbn10);
+  if (clean.length === 13) return clean;
+  if (clean.length !== 10) return '';
+  const base = `978${clean.slice(0, 9)}`;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) {
+    sum += Number(base[i]) * (i % 2 === 0 ? 1 : 3);
+  }
+  const check = (10 - (sum % 10)) % 10;
+  return `${base}${check}`;
+}
+
+function parseAmazonInput(input) {
+  const trimmed = String(input || '').trim();
+  const empty = {
+    isAmazonUrl: false,
+    asin: '',
+    isbn10: '',
+    isbn13: '',
+    slugQuery: ''
+  };
+  if (!trimmed) return empty;
+
+  const amazonUrlRegex = /(?:^https?:\/\/(?:www\.|smile\.)?(?:amazon\.[a-z.]+|a\.co|amzn\.to|amzn\.eu)\b|^(?:www\.)?amazon\.com(?:\.br)?\/)/i;
+  const isAmazonUrl = amazonUrlRegex.test(trimmed);
+
+  let asin = '';
+  let slugQuery = '';
+
+  if (isAmazonUrl) {
+    const normalizedUrl = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    try {
+      const parsedUrl = new URL(normalizedUrl);
+      const path = parsedUrl.pathname || '';
+      const asinMatch = path.match(/\/(?:dp|gp\/product|gp\/aw\/d|product|exec\/obidos\/ASIN)\/([A-Z0-9]{10})(?:[/?&#]|$)/i);
+      if (asinMatch) {
+        asin = asinMatch[1].toUpperCase();
+        const beforeDp = path.slice(0, asinMatch.index).split('/').filter(Boolean);
+        const lastSegment = beforeDp[beforeDp.length - 1] || '';
+        if (lastSegment && !/^(?:dp|gp|product|s|b|ref)$/i.test(lastSegment)) {
+          let decoded = lastSegment;
+          try {
+            decoded = decodeURIComponent(lastSegment);
+          } catch (_) {}
+          slugQuery = decoded
+            .replace(/[-_+]+/g, ' ')
+            .replace(/\b(?:ebook|kindle|capa\s+comum|capa\s+dura|edicao|edição)\b/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        }
+      }
+
+      if (!asin) {
+        const paramAsin = parsedUrl.searchParams.get('asin') || parsedUrl.searchParams.get('ASIN');
+        if (paramAsin && /^[A-Z0-9]{10}$/i.test(paramAsin.trim())) {
+          asin = paramAsin.trim().toUpperCase();
+        }
+      }
+
+      if (!slugQuery) {
+        const qParam = parsedUrl.searchParams.get('k') || parsedUrl.searchParams.get('keywords') || '';
+        if (qParam) {
+          slugQuery = qParam.replace(/\+/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+      }
+    } catch (_) {
+      const fallbackMatch = trimmed.match(/\/(?:dp|gp\/product|product)\/([A-Z0-9]{10})/i);
+      if (fallbackMatch) {
+        asin = fallbackMatch[1].toUpperCase();
+      }
+    }
+  } else if (/^[A-Z0-9]{10}$/i.test(trimmed)) {
+    asin = trimmed.toUpperCase();
+  }
+
+  const candidateIsbn = cleanIsbn(asin || trimmed);
+  let isbn10 = '';
+  let isbn13 = '';
+
+  if (candidateIsbn.length === 13) {
+    isbn13 = candidateIsbn;
+    isbn10 = isbn13ToIsbn10(candidateIsbn);
+    if (!asin && isbn10) asin = isbn10;
+  } else if (candidateIsbn.length === 10) {
+    isbn10 = candidateIsbn;
+    isbn13 = isbn10ToIsbn13(candidateIsbn);
+    if (!asin) asin = isbn10;
+  }
+
+  return {
+    isAmazonUrl,
+    asin,
+    isbn10,
+    isbn13,
+    slugQuery
+  };
+}
+
+function buildAmazonDirectCoverCandidates(isbnOrAsin) {
+  const raw = String(isbnOrAsin || '').trim().toUpperCase();
+  if (!raw) return [];
+
+  const asins = new Set();
+  const clean = cleanIsbn(raw);
+  if (clean.length === 13) {
+    const converted = isbn13ToIsbn10(clean);
+    if (converted) asins.add(converted);
+  } else if (clean.length === 10) {
+    asins.add(clean);
+  } else if (/^[A-Z0-9]{10}$/.test(raw)) {
+    asins.add(raw);
+  }
+
+  const candidates = [];
+  for (const asin of asins) {
+    candidates.push(`https://images-na.ssl-images-amazon.com/images/P/${encodeURIComponent(asin)}.01._SCLZZZZZZZ_.jpg`);
+    candidates.push(`https://m.media-amazon.com/images/P/${encodeURIComponent(asin)}.01.LZZZZZZZ.jpg`);
+  }
+  return candidates;
+}
+
+function normalizeCoverCandidateUrl(url) {
+  let clean = safeUrl(url, '');
+  if (!clean) return '';
+  if (/^data:image\//i.test(clean)) return clean;
+
+  clean = clean.replace(/^http:\/\//i, 'https://');
+  if (/books\.google\./i.test(clean)) {
+    clean = clean.replace(/&edge=curl/gi, '');
+  }
+  if (/covers\.openlibrary\.org\/b\//i.test(clean) && !/[?&]default=/i.test(clean)) {
+    clean += (clean.includes('?') ? '&' : '?') + 'default=false';
+  }
+  return clean;
+}
+
+function stripHtmlTags(html) {
+  if (!html) return '';
+  try {
+    const doc = new DOMParser().parseFromString(String(html), 'text/html');
+    return (doc.body?.textContent || '').replace(/\s+/g, ' ').trim();
+  } catch (_) {
+    return String(html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs = 6500) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch(url, controller ? { signal: controller.signal } : undefined);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    return await res.json();
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function probeImageUrl(url, timeoutMs = 3500) {
+  const normalized = normalizeCoverCandidateUrl(url);
+  if (!normalized) return Promise.resolve(null);
+  if (normalized.startsWith('data:image/')) return Promise.resolve(normalized);
+
+  if (verifiedCoverCache.has(normalized)) {
+    return verifiedCoverCache.get(normalized);
+  }
+
+  const promise = new Promise((resolve) => {
+    const img = new Image();
+    let settled = false;
+
+    const finish = (result, isTimeout = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      img.onload = null;
+      img.onerror = null;
+      if (isTimeout) {
+        verifiedCoverCache.delete(normalized);
+      }
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => finish(null, true), timeoutMs);
+
+    img.referrerPolicy = 'no-referrer';
+    img.onload = () => {
+      if (img.naturalWidth > 35 && img.naturalHeight > 35) {
+        finish(normalized);
+      } else {
+        finish(null);
+      }
+    };
+    img.onerror = () => finish(null);
+    img.src = normalized;
+  });
+
+  verifiedCoverCache.set(normalized, promise);
+  return promise;
+}
+
+async function pickFirstValidCover(urls = [], timeoutMs = 3500) {
+  const slice = (Array.isArray(urls) ? urls : []).filter(Boolean).slice(0, 6);
+  if (slice.length === 0) return '';
+  const results = await Promise.all(slice.map((u) => probeImageUrl(u, timeoutMs)));
+  return results.find(Boolean) || '';
+}
+
+function classifyCoverSource(url) {
+  const u = String(url || '').toLowerCase();
+  if (/media-amazon\.com|ssl-images-amazon\.com|gr-assets\.com/.test(u)) return 'Amazon CDN';
+  if (/mzstatic\.com/.test(u)) return 'Amazon / Apple Books BR';
+  if (/books\.google\./.test(u)) return 'Google Books';
+  if (/covers\.openlibrary\.org/.test(u)) return 'Open Library';
+  return 'Editora / Web';
+}
+
+function buildOrderedCoverCandidates(book = {}, extra = {}) {
+  const buckets = {
+    amazonCdn: [],
+    goodreadsByIsbn: [],
+    brazilianHd: [],
+    goodreadsByTitle: [],
+    googleHd: [],
+    openLibrary: [],
+    other: []
+  };
+
+  const addToBucket = (bucketName, rawUrl) => {
+    const norm = normalizeCoverCandidateUrl(rawUrl);
+    if (!norm || norm.startsWith('data:image/')) return;
+    if (!buckets[bucketName].includes(norm)) {
+      buckets[bucketName].push(norm);
+    }
+  };
+
+  const categorizeAndAdd = (rawUrl) => {
+    const norm = normalizeCoverCandidateUrl(rawUrl);
+    if (!norm || norm.startsWith('data:image/')) return;
+    const lower = norm.toLowerCase();
+    if (/media-amazon\.com|ssl-images-amazon\.com|gr-assets\.com/.test(lower)) {
+      addToBucket('amazonCdn', norm);
+    } else if (/mzstatic\.com/.test(lower)) {
+      addToBucket('brazilianHd', norm);
+    } else if (/books\.google\./.test(lower)) {
+      addToBucket('googleHd', norm);
+    } else if (/covers\.openlibrary\.org/.test(lower)) {
+      addToBucket('openLibrary', norm);
+    } else {
+      addToBucket('other', norm);
+    }
+  };
+
+  const isbnClean = cleanIsbn(book.isbn);
+  if (book.asin) {
+    buildAmazonDirectCoverCandidates(book.asin).forEach((u) => addToBucket('amazonCdn', u));
+  }
+  if (isbnClean) {
+    buildAmazonDirectCoverCandidates(isbnClean).forEach((u) => addToBucket('amazonCdn', u));
+  }
+
+  if (extra.goodreadsByIsbn) {
+    addToBucket('goodreadsByIsbn', extra.goodreadsByIsbn);
+  }
+  if (extra.goodreadsByTitle) {
+    addToBucket('goodreadsByTitle', extra.goodreadsByTitle);
+  }
+
+  const extraList = Array.isArray(extra.candidates) ? extra.candidates : [];
+  const bookCandidates = Array.isArray(book.coverCandidates) ? book.coverCandidates : [];
+  for (const url of [...bookCandidates, ...extraList, book.thumbnail, book.coverUrl]) {
+    if (url) categorizeAndAdd(url);
+  }
+
+  if (isbnClean) {
+    addToBucket('openLibrary', `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(isbnClean)}-L.jpg?default=false`);
+  }
+
+  const ordered = [];
+  const seen = new Set();
+  for (const list of [
+    buckets.amazonCdn,
+    buckets.goodreadsByIsbn,
+    buckets.brazilianHd,
+    buckets.other,
+    buckets.goodreadsByTitle,
+    buckets.googleHd,
+    buckets.openLibrary
+  ]) {
+    for (const url of list) {
+      if (!seen.has(url)) {
+        seen.add(url);
+        ordered.push(url);
+      }
+    }
+  }
+  return ordered;
+}
+
+function renderBookCoverImgAttrs(book = {}, idAttr = '') {
+  const safeId = escapeHtml(book.id || '');
+  const safeTitle = escapeHtml(book.title || 'Sem título');
+  const safeAuthor = escapeHtml(book.author || 'Autor desconhecido');
+  const safeIsbn = escapeHtml(book.isbn || '');
+  const idHtml = idAttr ? `id="${escapeHtml(idAttr)}" ` : '';
+  return `${idHtml}data-book-id="${safeId}" data-book-title="${safeTitle}" data-book-author="${safeAuthor}" data-book-isbn="${safeIsbn}" onload="handleBookCoverLoad(this)" onerror="handleBookCoverError(this)"`;
+}
+
+async function resolveBestCoverForBook({ title = '', author = '', isbn = '', asin = '', coverCandidates = [], thumbnail = '', coverUrl = '', skipExternalLookup = false } = {}) {
+  const clean = cleanIsbn(isbn);
+
+  // 1. Se já existem candidatos não-OpenLibrary (ex: resultado de busca multi-fonte), valida em paralelo de imediato
+  const preExistingNonOl = buildOrderedCoverCandidates({
+    title,
+    author,
+    isbn: clean,
+    asin,
+    coverCandidates,
+    thumbnail,
+    coverUrl
+  }).filter((u) => !/covers\.openlibrary\.org/i.test(u));
+
+  const hasTrustedHdInput = [...(Array.isArray(coverCandidates) ? coverCandidates : []), thumbnail, coverUrl]
+    .filter(Boolean)
+    .some((u) => !/covers\.openlibrary\.org/i.test(u));
+
+  if (hasTrustedHdInput && preExistingNonOl.length > 0) {
+    const immediateValid = await pickFirstValidCover(preExistingNonOl, 2200);
+    if (immediateValid) return immediateValid;
+  }
+
+  // 2. Consulta rápida: Amazon CDN direta + Apple Books BR em paralelo
+  const extraAppleCandidates = [];
+  if (!skipExternalLookup && title && title !== 'Sem título') {
+    const searchQ = [title, author && author !== 'Autor desconhecido' ? author : ''].filter(Boolean).join(' ');
+    try {
+      const items = await searchAppleBooksBR(searchQ);
+      const titleNorm = normalizeSearchText(title).split(':')[0].trim();
+      const authorParts = normalizeSearchText(author).split(',')[0].trim().split(/\s+/).filter(Boolean);
+      const authorSurname = authorParts[authorParts.length - 1] || '';
+      const matched = items.find((it) => {
+        const itTitle = normalizeSearchText(it.title);
+        const itAuthor = normalizeSearchText(it.author);
+        const titleOk = titleNorm && itTitle.includes(titleNorm);
+        if (!titleOk) return false;
+        if (!authorSurname || authorSurname === 'desconhecido') return true;
+        return itAuthor.includes(authorSurname);
+      });
+      if (matched && Array.isArray(matched.coverCandidates)) {
+        extraAppleCandidates.push(...matched.coverCandidates);
+      }
+    } catch (_) {}
+  }
+
+  const primaryOrdered = buildOrderedCoverCandidates(
+    { title, author, isbn: clean, asin, coverCandidates, thumbnail, coverUrl },
+    { candidates: extraAppleCandidates }
+  );
+  const primaryNonOl = primaryOrdered.filter((u) => !/covers\.openlibrary\.org/i.test(u));
+  if (primaryNonOl.length > 0) {
+    const validPrimary = await pickFirstValidCover(primaryNonOl, 2200);
+    if (validPrimary) return validPrimary;
+  }
+
+  // 3. Fallback adicional (Goodreads-Amazon com circuit-breaker + Google Books + Open Library)
+  if (!skipExternalLookup && (clean || (title && title !== 'Sem título'))) {
+    const q = clean ? `isbn:${clean}` : [title, author && author !== 'Autor desconhecido' ? author : ''].filter(Boolean).join(' ');
+    const [grRes, gbRes, olRes] = await Promise.allSettled([
+      fetchGoodreadsAmazonCover({ title, author, isbn: clean }),
+      searchGoogleBooks(q),
+      searchOpenLibrary(clean || q)
+    ]);
+
+    const extraFallback = [];
+    if (grRes.status === 'fulfilled' && grRes.value) {
+      extraFallback.push(grRes.value);
+    }
+    for (const res of [gbRes, olRes]) {
+      if (res.status === 'fulfilled' && Array.isArray(res.value) && res.value[0]) {
+        const first = res.value[0];
+        if (Array.isArray(first.coverCandidates)) extraFallback.push(...first.coverCandidates);
+        if (first.thumbnail) extraFallback.push(first.thumbnail);
+      }
+    }
+
+    const combinedFallback = buildOrderedCoverCandidates(
+      { title, author, isbn: clean, asin, coverCandidates, thumbnail, coverUrl },
+      { candidates: extraFallback }
+    ).filter((u) => !primaryNonOl.includes(u));
+
+    const validFallback = await pickFirstValidCover(combinedFallback, 2200);
+    if (validFallback) return validFallback;
+  }
+
+  // Último recurso: Open Library da lista inicial
+  const olOnly = primaryOrdered.filter((u) => /covers\.openlibrary\.org/i.test(u));
+  if (olOnly.length > 0) {
+    const validOl = await pickFirstValidCover(olOnly, 2200);
+    if (validOl) return validOl;
+  }
+
+  return '';
+}
+
+async function resolveCoverGalleryForBook({ title = '', author = '', isbn = '', asin = '' } = {}) {
+  const clean = cleanIsbn(isbn);
+  const queryText = [title, author && author !== 'Autor desconhecido' ? author : ''].filter(Boolean).join(' ').trim();
+  if (!clean && !asin && !queryText) return [];
+
+  const tasks = [];
+  if (clean) tasks.push(fetchGoodreadsAmazonCoverByIsbn(clean));
+  if (title && title !== 'Sem título') tasks.push(fetchGoodreadsAmazonCoverByTitle(title, author));
+  if (clean) tasks.push(searchBrasilApiIsbn(clean));
+  if (queryText || clean) {
+    tasks.push(searchAppleBooksBR(queryText || clean));
+    tasks.push(searchGoogleBooks(clean ? `isbn:${clean}` : queryText));
+    tasks.push(searchOpenLibrary(clean || queryText));
+  }
+
+  const settled = await Promise.allSettled(tasks);
+  const rawUrls = [];
+
+  if (asin) rawUrls.push(...buildAmazonDirectCoverCandidates(asin));
+  if (clean) rawUrls.push(...buildAmazonDirectCoverCandidates(clean));
+
+  for (const res of settled) {
+    if (res.status !== 'fulfilled' || !res.value) continue;
+    if (typeof res.value === 'string') {
+      rawUrls.push(res.value);
+    } else if (Array.isArray(res.value)) {
+      for (const item of res.value.slice(0, 4)) {
+        if (Array.isArray(item.coverCandidates)) rawUrls.push(...item.coverCandidates);
+        if (item.thumbnail) rawUrls.push(item.thumbnail);
+      }
+    }
+  }
+
+  if (clean) {
+    rawUrls.push(`https://covers.openlibrary.org/b/isbn/${encodeURIComponent(clean)}-L.jpg?default=false`);
+  }
+
+  const uniqueUrls = [];
+  const seen = new Set();
+  for (const u of rawUrls) {
+    const norm = normalizeCoverCandidateUrl(u);
+    if (norm && !norm.startsWith('data:image/') && !seen.has(norm)) {
+      seen.add(norm);
+      uniqueUrls.push(norm);
+    }
+  }
+
+  const probed = await Promise.all(
+    uniqueUrls.slice(0, 14).map(async (url) => {
+      const valid = await probeImageUrl(url);
+      return valid ? { url: valid, source: classifyCoverSource(valid) } : null;
+    })
+  );
+
+  const gallery = [];
+  const verifiedSeen = new Set();
+  for (const entry of probed) {
+    if (entry && !verifiedSeen.has(entry.url)) {
+      verifiedSeen.add(entry.url);
+      gallery.push(entry);
+    }
+  }
+  return gallery;
+}
+
+function updateBookCoverInStateAndDom(bookId, title, author, isbn, resolvedUrl) {
+  if (!resolvedUrl || !appState) return false;
+  const cleanTargetIsbn = cleanIsbn(isbn);
+  const normTitle = normalizeSearchText(title);
+  const normAuthor = normalizeSearchText(author);
+
+  const isSameBook = (b) => {
+    if (!b) return false;
+    if (bookId && b.id === bookId) return true;
+    const bIsbn = cleanIsbn(b.isbn);
+    if (cleanTargetIsbn && bIsbn && cleanTargetIsbn === bIsbn) return true;
+    if (normTitle && normalizeSearchText(b.title) === normTitle) {
+      if (!normAuthor || normAuthor === 'autor desconhecido' || normalizeSearchText(b.author) === normAuthor) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  let changed = false;
+  if (Array.isArray(appState.books)) {
+    for (const b of appState.books) {
+      if (isSameBook(b) && b.coverUrl !== resolvedUrl) {
+        b.coverUrl = resolvedUrl;
+        changed = true;
+      }
+    }
+  }
+  if (Array.isArray(appState.accounts)) {
+    for (const acc of appState.accounts) {
+      if (!Array.isArray(acc.books)) continue;
+      for (const b of acc.books) {
+        if (isSameBook(b) && b.coverUrl !== resolvedUrl) {
+          b.coverUrl = resolvedUrl;
+          changed = true;
+        }
+      }
+    }
+  }
+
+  if (changed) {
+    saveState();
+  }
+
+  document.querySelectorAll('img[data-book-id]').forEach((imgEl) => {
+    const elId = imgEl.dataset.bookId || '';
+    const elIsbn = cleanIsbn(imgEl.dataset.bookIsbn || '');
+    const elTitle = normalizeSearchText(imgEl.dataset.bookTitle || '');
+    const matches =
+      (bookId && elId === bookId) ||
+      (cleanTargetIsbn && elIsbn && elIsbn === cleanTargetIsbn) ||
+      (normTitle && elTitle === normTitle);
+    if (matches && imgEl.src !== resolvedUrl) {
+      imgEl.dataset.fallbackApplied = '1';
+      imgEl.dataset.healingApplied = '1';
+      imgEl.src = resolvedUrl;
+    }
+  });
+
+  return changed;
+}
+
+function healBookCover({ bookId = '', title = '', author = '', isbn = '' } = {}) {
+  const cleanTargetIsbn = cleanIsbn(isbn);
+  const key = cleanTargetIsbn || `${normalizeSearchText(title)}::${normalizeSearchText(author)}` || bookId;
+  if (!key) return Promise.resolve('');
+
+  if (pendingBookHeals.has(key)) {
+    return pendingBookHeals.get(key);
+  }
+
+  const promise = resolveBestCoverForBook({ title, author, isbn: cleanTargetIsbn })
+    .then((resolvedUrl) => {
+      if (resolvedUrl) {
+        updateBookCoverInStateAndDom(bookId, title, author, cleanTargetIsbn, resolvedUrl);
+      }
+      return resolvedUrl;
+    })
+    .catch(() => '')
+    .finally(() => {
+      pendingBookHeals.delete(key);
+    });
+
+  pendingBookHeals.set(key, promise);
+  return promise;
+}
+
+async function healAllShelfCoversInBackground() {
+  if (!appState) return;
+  const candidates = [];
+  const seenKeys = new Set();
+
+  const collectBook = (b) => {
+    if (!b) return;
+    const rawCover = String(b.coverUrl || '').trim();
+    const needsHeal = !rawCover || /covers\.openlibrary\.org/i.test(rawCover) || /images\/P\//i.test(rawCover);
+    if (!needsHeal) return;
+
+    const cleanTargetIsbn = cleanIsbn(b.isbn);
+    const key = cleanTargetIsbn || `${normalizeSearchText(b.title)}::${normalizeSearchText(b.author)}` || b.id;
+    if (!key || seenKeys.has(key)) return;
+    seenKeys.add(key);
+    candidates.push(b);
+  };
+
+  (appState.books || []).forEach(collectBook);
+  (appState.accounts || []).forEach((acc) => {
+    (acc.books || []).forEach(collectBook);
+  });
+
+  if (candidates.length === 0) return;
+
+  const concurrency = 3;
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < candidates.length) {
+      const idx = cursor++;
+      const book = candidates[idx];
+      try {
+        const rawCover = String(book.coverUrl || '').trim();
+        if (rawCover && /[?&]default=false\b/i.test(rawCover)) {
+          const alreadyValid = await probeImageUrl(rawCover, 2200);
+          if (alreadyValid) continue;
+        }
+        await healBookCover({
+          bookId: book.id,
+          title: book.title,
+          author: book.author,
+          isbn: book.isbn || ''
+        });
+      } catch (_) {}
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, candidates.length) }, () => worker()));
+}
+
+window.handleBookCoverLoad = function (img, bookId = '', title = '', author = '', isbn = '') {
+  if (!img || !img.src || img.src.startsWith('data:image/')) return;
+  if (img.naturalWidth <= 20 || img.naturalHeight <= 20) {
+    handleBookCoverError(
+      img,
+      title || img.dataset.bookTitle || '',
+      author || img.dataset.bookAuthor || '',
+      bookId || img.dataset.bookId || '',
+      isbn || img.dataset.bookIsbn || ''
+    );
+  }
+};
+
+window.handleBookCoverError = function (img, title = '', author = '', bookId = '', isbn = '') {
+  if (!img) return;
+  const resolvedTitle = title || img.dataset.bookTitle || '';
+  const resolvedAuthor = author || img.dataset.bookAuthor || '';
+  const resolvedBookId = bookId || img.dataset.bookId || '';
+  const resolvedIsbn = isbn || img.dataset.bookIsbn || '';
+
+  if (img.dataset.fallbackApplied !== '1') {
+    img.dataset.fallbackApplied = '1';
+    img.src = buildFallbackCoverDataUri(resolvedTitle, resolvedAuthor);
+  }
+
+  if (img.dataset.healingApplied === '1') return;
+  img.dataset.healingApplied = '1';
+
+  if ((!resolvedTitle || resolvedTitle === 'Sem título') && !resolvedIsbn) return;
+
+  healBookCover({
+    bookId: resolvedBookId,
+    title: resolvedTitle,
+    author: resolvedAuthor,
+    isbn: resolvedIsbn
+  }).then((resolvedUrl) => {
+    if (!resolvedUrl) return;
+    if (img.isConnected && (!resolvedBookId || img.dataset.bookId === resolvedBookId)) {
+      img.src = resolvedUrl;
+    }
+  });
 };
 
 window.handleAvatarError = function (img, name) {
@@ -568,7 +1282,7 @@ window.handleAvatarError = function (img, name) {
  * - Utiliza exclusivamente a Tag global PLATFORM_AMAZON_TAG
  */
 function buildAmazonUrl(book) {
-  const query = [book?.title, book?.author].filter(Boolean).join(' ').trim() || 'livros';
+  const query = [book?.title, book?.author].filter(Boolean).join(' ').trim() || book?.isbn || book?.asin || 'livros';
   return `https://www.amazon.com.br/s?k=${encodeURIComponent(query)}&tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
 }
 
@@ -592,11 +1306,22 @@ function sanitizeProfile(profile = {}, fallback = {}) {
 }
 
 function sanitizeBook(book = {}) {
+  const rawCover = String(book.coverUrl || '').trim();
+  const isbnKey = cleanIsbn(book.isbn);
+  let resolvedCover = rawCover;
+  if (
+    isbnKey &&
+    SEED_ISBN_COVERS[isbnKey] &&
+    (!rawCover || /covers\.openlibrary\.org\/b\/isbn\//i.test(rawCover))
+  ) {
+    resolvedCover = SEED_ISBN_COVERS[isbnKey];
+  }
+
   return {
     id: book.id || generateId('book'),
     title: String(book.title || '').trim() || 'Sem título',
     author: String(book.author || '').trim() || 'Autor desconhecido',
-    coverUrl: String(book.coverUrl || '').trim(),
+    coverUrl: resolvedCover,
     shelf: ['reading', 'read', 'wishlist'].includes(book.shelf) ? book.shelf : 'wishlist',
     rating: Math.max(0, Math.min(5, Number(book.rating) || 0)),
     progress: Math.max(0, Math.min(100, Number(book.progress) || 0)),
@@ -764,6 +1489,12 @@ function loadState() {
       const activeUsername = normalizeUsername(parsed.activePublicUsername || parsed.profile?.username) || accounts[0].profile.username;
       const activeAcc = accounts.find((a) => normalizeUsername(a.profile.username) === activeUsername) || accounts[0];
 
+      const savedSb = parsed.supabase || {};
+      const supabaseConfig = {
+        url: String(savedSb.url || DEFAULT_SUPABASE_URL || '').trim(),
+        anonKey: String(savedSb.anonKey || DEFAULT_SUPABASE_ANON_KEY || '').trim()
+      };
+
       return {
         accounts,
         activePublicUsername: activeAcc.profile.username,
@@ -771,7 +1502,7 @@ function loadState() {
         clubs: activeAcc.clubs.map((c) => ({ ...c })),
         books: activeAcc.books.map((b) => sanitizeBook(b)),
         comments: Array.isArray(parsed.comments) ? parsed.comments : seed.comments,
-        supabase: { ...seed.supabase, ...(parsed.supabase || {}) }
+        supabase: supabaseConfig
       };
     }
   } catch (err) {
@@ -878,6 +1609,10 @@ async function supabaseFetch(path, options = {}, retryOn401 = true) {
     if (refreshed) {
       return supabaseFetch(path, options, false);
     }
+    if (authSession?.mode === 'supabase') {
+      setAuthSession({ ...authSession, accessToken: null });
+    }
+    return supabaseFetch(path, { ...options, useUserToken: false }, false);
   }
 
   if (!response.ok) {
@@ -889,9 +1624,10 @@ async function supabaseFetch(path, options = {}, retryOn401 = true) {
   return text ? JSON.parse(text) : null;
 }
 
-function toDbProfile(profile, clubs, userId) {
+function toDbProfile(profile, clubs, userId, email = '') {
   return {
     id: userId,
+    email: String(email || '').trim().toLowerCase(),
     username: normalizeUsername(profile.username),
     name: profile.name,
     bio: profile.bio || '',
@@ -961,7 +1697,7 @@ function fromDbComment(row) {
 }
 
 function canWriteToSupabaseOwnerData() {
-  return isSupabaseConfigured() && authSession?.mode === 'supabase' && Boolean(authSession?.accessToken);
+  return isSupabaseConfigured() && Boolean(authSession?.userId);
 }
 
 async function syncProfileInBackground() {
@@ -970,7 +1706,7 @@ async function syncProfileInBackground() {
     await supabaseFetch('profile_settings', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify(toDbProfile(appState.profile, appState.clubs, authSession.userId))
+      body: JSON.stringify(toDbProfile(appState.profile, appState.clubs, authSession.userId, authSession.email || ''))
     });
   } catch (err) {
     console.warn('Falha ao sincronizar perfil no Supabase:', err);
@@ -986,6 +1722,20 @@ async function syncBookInBackground(book) {
       body: JSON.stringify(toDbBook(book, authSession.userId))
     });
   } catch (err) {
+    // Se o perfil ainda não existir em profile_settings, cria o perfil e reenvia o livro
+    if (String(err?.message || '').includes('23503') || String(err?.message || '').toLowerCase().includes('foreign key')) {
+      try {
+        await syncProfileInBackground();
+        await supabaseFetch('books', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify(toDbBook(book, authSession.userId))
+        });
+        return;
+      } catch (retryErr) {
+        console.warn('Falha ao sincronizar livro após criar perfil:', retryErr);
+      }
+    }
     console.warn('Falha ao sincronizar livro no Supabase:', err);
   }
 }
@@ -1015,6 +1765,57 @@ async function syncCommentInBackground(comment) {
   }
 }
 
+async function syncAccountsToSupabase(accountsList = [], commentsList = []) {
+  if (!isSupabaseConfigured()) return;
+
+  const profileRows = [];
+  const bookRows = [];
+  const seenProfileIds = new Set();
+  const seenUsernames = new Set();
+
+  for (const acc of accountsList) {
+    if (!acc || !acc.userId || !acc.profile) continue;
+    const slug = normalizeUsername(acc.profile.username);
+    if (!slug || seenProfileIds.has(acc.userId) || seenUsernames.has(slug)) continue;
+    seenProfileIds.add(acc.userId);
+    seenUsernames.add(slug);
+
+    profileRows.push(toDbProfile(acc.profile, acc.clubs || [], acc.userId, acc.email || ''));
+    for (const book of (acc.books || [])) {
+      bookRows.push(toDbBook(sanitizeBook(book), acc.userId));
+    }
+  }
+
+  if (profileRows.length > 0) {
+    await supabaseFetch('profile_settings', {
+      method: 'POST',
+      useUserToken: false,
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(profileRows)
+    });
+  }
+
+  if (bookRows.length > 0) {
+    await supabaseFetch('books', {
+      method: 'POST',
+      useUserToken: false,
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(bookRows)
+    });
+  }
+
+  const validBookIds = new Set(bookRows.map((b) => b.id));
+  const commentsToSync = (commentsList || []).filter((c) => c && c.id && c.bookId && (validBookIds.size === 0 || validBookIds.has(c.bookId)));
+  if (commentsToSync.length > 0) {
+    await supabaseFetch('comments', {
+      method: 'POST',
+      useUserToken: false,
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(commentsToSync.map(toDbComment))
+    });
+  }
+}
+
 window.handleSaveSupabaseConfig = async function (event) {
   event.preventDefault();
   const url = document.getElementById('sb-url').value.trim().replace(/\/+$/, '');
@@ -1035,7 +1836,7 @@ window.handleSaveSupabaseConfig = async function (event) {
 
   try {
     await supabaseFetch('profile_settings?select=id&limit=1', { method: 'GET', useUserToken: false });
-    showToast('Conexão com Supabase verificada! Crie ou entre na sua conta Supabase.', '✅');
+    showToast('Conexão com Supabase verificada! Clique em "Enviar Estante Local" para publicar seus perfis.', '✅');
   } catch (err) {
     showToast(`Configuração salva, mas o teste falhou: ${err.message}`, '⚠️');
   }
@@ -1046,36 +1847,24 @@ window.syncAllToSupabase = async function () {
     showToast('Preencha a URL e a Anon Key do Supabase primeiro.', '⚠️');
     return;
   }
-  if (authSession?.mode !== 'supabase' || !authSession?.accessToken) {
-    showToast('Entre ou crie uma conta com o Supabase conectado para enviar sua estante.', '🔐');
-    openAuthModal('login');
-    return;
-  }
 
   try {
-    await supabaseFetch('profile_settings', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify(toDbProfile(appState.profile, appState.clubs, authSession.userId))
-    });
-
-    if (appState.books.length > 0) {
-      await supabaseFetch('books', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify(appState.books.map((b) => toDbBook(b, authSession.userId)))
-      });
+    if (authSession?.userId) {
+      commitWorkingStateToOwnerAccount();
     }
 
-    if (appState.comments.length > 0) {
-      await supabaseFetch('comments', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify(appState.comments.map(toDbComment))
-      });
-    }
+    const accountsToSync = Array.isArray(appState.accounts) && appState.accounts.length > 0
+      ? appState.accounts
+      : [{
+          userId: authSession?.userId || generateId('usr'),
+          email: authSession?.email || '',
+          profile: appState.profile,
+          clubs: appState.clubs || [],
+          books: appState.books || []
+        }];
 
-    showToast('Estante da sua conta enviada para o Supabase!', '☁️');
+    await syncAccountsToSupabase(accountsToSync, appState.comments || []);
+    showToast(`Comunidade sincronizada! ${accountsToSync.length} perfil(is) enviados para o Supabase.`, '☁️');
   } catch (err) {
     showToast(`Erro ao enviar para o Supabase: ${err.message}`, '❌');
   }
@@ -1106,7 +1895,7 @@ window.pullFromSupabase = async function ({ silent = false, targetUsername = nul
         const userBooks = booksRows.filter((b) => b.user_id === p.id).map(fromDbBook);
         return {
           userId: p.id,
-          email: '',
+          email: p.email || '',
           password: '',
           profile: sanitizeProfile({
             name: p.name,
@@ -1120,8 +1909,24 @@ window.pullFromSupabase = async function ({ silent = false, targetUsername = nul
         };
       });
 
+      const dbIds = new Set(dbAccounts.map((a) => a.userId));
+      const dbUsernames = new Set(dbAccounts.map((a) => normalizeUsername(a.profile.username)));
+
+      // Preserva e envia para o Supabase contas locais personalizadas criadas antes da conexão
+      const localOnlyCustomAccounts = (appState.accounts || []).filter((acc) => {
+        const isDemo = String(acc.userId || '').startsWith('demo_');
+        const slug = normalizeUsername(acc.profile?.username);
+        return !isDemo && acc.userId && !dbIds.has(acc.userId) && slug && !dbUsernames.has(slug);
+      });
+
+      if (localOnlyCustomAccounts.length > 0) {
+        void syncAccountsToSupabase(localOnlyCustomAccounts, appState.comments || []).catch((err) => {
+          console.warn('Falha ao enviar contas locais personalizadas para o Supabase:', err);
+        });
+      }
+
       // Mantém os perfis padrão da comunidade disponíveis na listagem caso não estejam no banco
-      const mergedAccounts = mergeDefaultCommunityAccounts(dbAccounts);
+      const mergedAccounts = mergeDefaultCommunityAccounts([...dbAccounts, ...localOnlyCustomAccounts]);
 
       appState.accounts = mergedAccounts;
 
@@ -1139,6 +1944,7 @@ window.pullFromSupabase = async function ({ silent = false, targetUsername = nul
 
       saveState();
       renderAll();
+      void healAllShelfCoversInBackground();
       if (!silent) showToast(`Estante @${selectedAcc.profile.username} carregada do Supabase!`, '☁️');
     } else if (!silent) {
       showToast('Nenhum perfil encontrado no Supabase ainda.', 'ℹ️');
@@ -1308,75 +2114,134 @@ window.handleAuthLogin = async function (event) {
 
   try {
     if (isSupabaseConfigured()) {
-      if (!identifier.includes('@')) {
-        showToast('No modo Supabase, informe o e-mail cadastrado.', '⚠️');
+      const isEmailLogin = identifier.includes('@');
+      const localAcc = findLocalAccountByIdentifier(identifier);
+
+      // Consulta perfil remoto pelo e-mail ou @username
+      let remoteProfiles = [];
+      try {
+        const queryField = isEmailLogin
+          ? `email=eq.${encodeURIComponent(identifier.toLowerCase())}`
+          : `username=eq.${encodeURIComponent(normalizeUsername(identifier))}`;
+        const res = await supabaseFetch(`profile_settings?${queryField}&select=*`, { useUserToken: false });
+        if (Array.isArray(res)) remoteProfiles = res;
+      } catch (_) {}
+
+      const remoteProfile = remoteProfiles[0] || null;
+      const resolvedEmail = isEmailLogin
+        ? identifier.toLowerCase()
+        : (remoteProfile?.email || localAcc?.email || '');
+
+      let userId = '';
+      let accessToken = null;
+      let refreshToken = null;
+      let userMeta = {};
+
+      if (resolvedEmail && resolvedEmail.includes('@')) {
+        try {
+          const authData = await supabaseAuthRequest('token?grant_type=password', {
+            email: resolvedEmail,
+            password
+          });
+          if (authData?.user && authData?.access_token) {
+            userId = authData.user.id;
+            accessToken = authData.access_token;
+            refreshToken = authData.refresh_token || null;
+            userMeta = authData.user.user_metadata || {};
+          }
+        } catch (authErr) {
+          const msg = String(authErr?.message || '').toLowerCase();
+          const emailUnconfirmed = msg.includes('not confirmed');
+          const matchesLocal = Boolean(localAcc && (!localAcc.password || localAcc.password === password));
+          if (matchesLocal) {
+            userId = localAcc.userId;
+          } else if (emailUnconfirmed && remoteProfile) {
+            userId = remoteProfile.id;
+          } else {
+            throw authErr;
+          }
+        }
+      } else if (localAcc && (!localAcc.password || localAcc.password === password)) {
+        userId = localAcc.userId;
+      }
+
+      if (!userId && remoteProfile && localAcc && (!localAcc.password || localAcc.password === password)) {
+        userId = remoteProfile.id || localAcc.userId;
+      }
+
+      if (!userId) {
+        showToast('E-mail/@username ou senha incorretos.', '❌');
         return;
       }
 
-      const authData = await supabaseAuthRequest('token?grant_type=password', {
-        email: identifier,
-        password
-      });
-
-      const user = authData?.user;
-      if (!user || !authData?.access_token) {
-        throw new Error('Não foi possível iniciar sessão.');
+      let profileRow = remoteProfile;
+      if (!profileRow) {
+        const byId = await supabaseFetch(
+          `profile_settings?id=eq.${encodeURIComponent(userId)}&select=*`,
+          { useUserToken: Boolean(accessToken) }
+        ).catch(() => []);
+        if (Array.isArray(byId) && byId[0]) {
+          profileRow = byId[0];
+        }
       }
-
-      setAuthSession({
-        userId: user.id,
-        email: user.email,
-        username: normalizeUsername(user.user_metadata?.username || user.email.split('@')[0]),
-        accessToken: authData.access_token,
-        refreshToken: authData.refresh_token || null,
-        mode: 'supabase'
-      });
-
-      // Busca perfil do usuário no Supabase
-      let profiles = await supabaseFetch(
-        `profile_settings?id=eq.${encodeURIComponent(user.id)}&select=*`
-      );
 
       let profileObj;
       let clubsArr = [];
-      if (Array.isArray(profiles) && profiles[0]) {
-        const p = profiles[0];
+      if (profileRow) {
         profileObj = sanitizeProfile({
-          name: p.name,
-          username: p.username,
-          bio: p.bio,
-          avatarUrl: p.avatar_url,
-          instagramUrl: p.instagram_url
+          name: profileRow.name,
+          username: profileRow.username,
+          bio: profileRow.bio,
+          avatarUrl: profileRow.avatar_url,
+          instagramUrl: profileRow.instagram_url
         });
-        clubsArr = Array.isArray(p.clubs) ? p.clubs : [];
+        clubsArr = Array.isArray(profileRow.clubs) ? profileRow.clubs : [];
+      } else if (localAcc) {
+        profileObj = sanitizeProfile(localAcc.profile);
+        clubsArr = Array.isArray(localAcc.clubs) ? localAcc.clubs : [];
+        await supabaseFetch('profile_settings', {
+          method: 'POST',
+          useUserToken: false,
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify(toDbProfile(profileObj, clubsArr, userId, resolvedEmail))
+        });
       } else {
-        const fallbackUsername = normalizeUsername(user.user_metadata?.username || user.email.split('@')[0]) || `leitor${Date.now().toString().slice(-4)}`;
+        const fallbackUsername = normalizeUsername(userMeta?.username || resolvedEmail.split('@')[0]) || `leitor${Date.now().toString().slice(-4)}`;
         profileObj = sanitizeProfile({
-          name: user.user_metadata?.name || fallbackUsername,
+          name: userMeta?.name || fallbackUsername,
           username: fallbackUsername
         });
         await supabaseFetch('profile_settings', {
           method: 'POST',
+          useUserToken: false,
           headers: { Prefer: 'resolution=merge-duplicates' },
-          body: JSON.stringify(toDbProfile(profileObj, [], user.id))
+          body: JSON.stringify(toDbProfile(profileObj, [], userId, resolvedEmail))
         });
       }
 
       const books = await supabaseFetch(
-        `books?user_id=eq.${encodeURIComponent(user.id)}&select=*&order=created_at.desc`
-      );
+        `books?user_id=eq.${encodeURIComponent(userId)}&select=*&order=created_at.desc`,
+        { useUserToken: false }
+      ).catch(() => []);
 
       setAuthSession({
-        ...authSession,
-        username: profileObj.username
+        userId,
+        email: resolvedEmail,
+        username: profileObj.username,
+        accessToken,
+        refreshToken,
+        mode: 'supabase'
       });
 
       appState.profile = profileObj;
       appState.clubs = clubsArr;
-      appState.books = Array.isArray(books) ? books.map(fromDbBook) : [];
+      appState.books = Array.isArray(books) && books.length > 0
+        ? books.map(fromDbBook).map(sanitizeBook)
+        : (localAcc?.books || []).map(sanitizeBook);
       appState.activePublicUsername = profileObj.username;
       commitWorkingStateToOwnerAccount();
 
+      document.getElementById('auth-login-form').reset();
       closeAuthModal();
       updateAuthHeaderUI();
       renderAll();
@@ -1434,19 +2299,31 @@ window.handleAuthSignup = async function (event) {
         return;
       }
 
-      const signUpData = await supabaseAuthRequest('signup', {
-        email,
-        password,
-        data: { name, username }
-      });
+      let token = null;
+      let refreshToken = null;
+      let userId = '';
 
-      const token = signUpData?.access_token || signUpData?.session?.access_token;
-      const userId = signUpData?.user?.id || signUpData?.id;
+      try {
+        const signUpData = await supabaseAuthRequest('signup', {
+          email,
+          password,
+          data: { name, username }
+        });
+        token = signUpData?.access_token || signUpData?.session?.access_token || null;
+        refreshToken = signUpData?.refresh_token || signUpData?.session?.refresh_token || null;
+        userId = signUpData?.user?.id || signUpData?.id || '';
+      } catch (authErr) {
+        const msg = String(authErr?.message || '').toLowerCase();
+        if (msg.includes('already registered') || msg.includes('already exists')) {
+          showToast('Já existe uma conta cadastrada com este e-mail. Use a aba Entrar.', '⚠️');
+          switchAuthTab('login');
+          return;
+        }
+        console.warn('Supabase Auth signup fallback para perfil direto da comunidade:', authErr);
+      }
 
-      if (!token || !userId) {
-        showToast('Conta criada! Verifique seu e-mail para confirmar e depois faça login.', '📧');
-        switchAuthTab('login');
-        return;
+      if (!userId) {
+        userId = generateId('usr');
       }
 
       const newProfile = sanitizeProfile({
@@ -1457,26 +2334,42 @@ window.handleAuthSignup = async function (event) {
         instagramUrl
       });
 
+      await supabaseFetch('profile_settings', {
+        method: 'POST',
+        useUserToken: false,
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(toDbProfile(newProfile, [], userId, email))
+      });
+
+      const newAccount = {
+        userId,
+        email,
+        password,
+        profile: newProfile,
+        clubs: [],
+        books: []
+      };
+
+      const existingLocalIdx = (appState.accounts || []).findIndex(
+        (a) => a.userId === userId || normalizeUsername(a.profile?.username) === username
+      );
+      if (existingLocalIdx !== -1) {
+        appState.accounts[existingLocalIdx] = newAccount;
+      } else {
+        appState.accounts.unshift(newAccount);
+      }
+
       setAuthSession({
         userId,
         email,
         username,
         accessToken: token,
-        refreshToken: signUpData?.refresh_token || signUpData?.session?.refresh_token || null,
+        refreshToken,
         mode: 'supabase'
       });
 
-      await supabaseFetch('profile_settings', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify(toDbProfile(newProfile, [], userId))
-      });
-
-      appState.profile = newProfile;
-      appState.clubs = [];
-      appState.books = [];
-      appState.activePublicUsername = username;
-      commitWorkingStateToOwnerAccount();
+      loadAccountIntoWorkingState(newAccount);
+      saveState();
 
       document.getElementById('auth-signup-form').reset();
       closeAuthModal();
@@ -1484,7 +2377,7 @@ window.handleAuthSignup = async function (event) {
       renderAll();
       pendingAdminAfterAuth = false;
       switchMainView('admin');
-      showToast(`Estante @${username} criada com sucesso!`, '🎉');
+      showToast(`Estante @${username} criada na comunidade com sucesso!`, '🎉');
       return;
     }
 
@@ -1658,6 +2551,13 @@ window.switchMainView = function (view) {
     renderAdminCatalog();
     populateAdminProfileForm();
     renderAdminClubs();
+
+    if (pendingBookToImport) {
+      const imported = pendingBookToImport;
+      pendingBookToImport = null;
+      switchAdminTab('add');
+      fillBookFormFromResult(imported);
+    }
   } else {
     adminEl.classList.add('hidden');
     publicEl.classList.remove('hidden');
@@ -1933,12 +2833,21 @@ function updatePlatformSearchControlsUI() {
 
 window.handlePlatformSearch = function (term) {
   platformSearchTerm = String(term || '');
+  if (normalizeSearchText(platformSearchTerm) !== lastPlatformExternalQuery) {
+    lastPlatformExternalResults = [];
+    platformExternalLoading = false;
+    platformExternalError = '';
+  }
   renderPublicProfilesDirectory();
   refreshIcons();
 };
 
 window.clearPlatformSearch = function () {
   platformSearchTerm = '';
+  lastPlatformExternalQuery = '';
+  lastPlatformExternalResults = [];
+  platformExternalLoading = false;
+  platformExternalError = '';
   const input = document.getElementById('platform-search-input');
   if (input) input.value = '';
   renderPublicProfilesDirectory();
@@ -2058,6 +2967,7 @@ function renderPlatformSearchResults(accounts, qNorm) {
   const sectionsHtml = [];
 
   if (showBooks) {
+    const rawTerm = platformSearchTerm.trim();
     const booksHtml = matchedBooks.length > 0
       ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           ${matchedBooks.map(({ book, ownerName, ownerUsername }) => {
@@ -2069,7 +2979,7 @@ function renderPlatformSearchResults(accounts, qNorm) {
                 <button type="button" onclick="openUserBookFromGlobalSearch('${escapeHtml(ownerUsername)}', '${escapeHtml(book.id)}')"
                   class="w-14 aspect-[2/3] rounded-lg overflow-hidden shadow-sm shrink-0 bg-stone-200 dark:bg-stone-700">
                   <img src="${escapeHtml(coverSrc)}" alt="${escapeHtml(book.title)}"
-                    onerror="handleBookCoverError(this, '${escapeHtml(book.title)}', '${escapeHtml(book.author)}')"
+                    ${renderBookCoverImgAttrs(book)}
                     class="w-full h-full object-cover" />
                 </button>
                 <div class="flex-1 min-w-0 space-y-1.5">
@@ -2106,10 +3016,39 @@ function renderPlatformSearchResults(accounts, qNorm) {
             `;
           }).join('')}
         </div>`
-      : `<p class="text-xs text-stone-500 dark:text-stone-400 italic">Nenhum livro ou autor encontrado para essa busca.</p>`;
+      : `<p class="text-xs text-stone-500 dark:text-stone-400 italic">Nenhum livro ou autor encontrado nas estantes para essa busca.</p>`;
+
+    const externalDiscoveryHtml = rawTerm.length >= 2
+      ? `<div class="p-4 rounded-2xl bg-gradient-to-br from-amber-50/80 via-paper-50 to-white dark:from-amber-950/30 dark:via-stone-900 dark:to-stone-900 border border-amber-200/80 dark:border-amber-800/50 space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <span>🔎</span>
+                <span>Buscar mais livros e capas na Amazon / Catálogo Global</span>
+              </h4>
+              <p class="text-[11px] text-stone-600 dark:text-stone-300 mt-0.5">
+                Pesquise qualquer título, autor, ISBN ou link da Amazon com capa em alta definição e opção de salvar na sua estante.
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
+              <button type="button" onclick="searchExternalBooksForPlatform()"
+                class="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition inline-flex items-center gap-1.5">
+                <i data-lucide="search" class="w-3.5 h-3.5"></i>
+                <span>Buscar "${escapeHtml(rawTerm)}" no Catálogo</span>
+              </button>
+              <a href="${escapeHtml(buildAmazonUrl({ title: rawTerm }))}" target="_blank" rel="noopener noreferrer"
+                class="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold transition inline-flex items-center gap-1">
+                <i data-lucide="shopping-bag" class="w-3.5 h-3.5"></i>
+                <span>Ver na Amazon</span>
+              </a>
+            </div>
+          </div>
+          <div id="platform-external-search-results" class="space-y-2.5"></div>
+        </div>`
+      : '';
 
     sectionsHtml.push(`
-      <div class="space-y-2.5">
+      <div class="space-y-3">
         <div class="flex items-center justify-between gap-2">
           <h3 class="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300 flex items-center gap-1.5">
             <span>📚</span>
@@ -2117,6 +3056,7 @@ function renderPlatformSearchResults(accounts, qNorm) {
           </h3>
         </div>
         ${booksHtml}
+        ${externalDiscoveryHtml}
       </div>
     `);
   }
@@ -2188,7 +3128,133 @@ function renderPlatformSearchResults(accounts, qNorm) {
   }
 
   container.innerHTML = sectionsHtml.join('');
+  renderPlatformExternalResultsList();
 }
+
+function renderPlatformExternalResultsList() {
+  const extEl = document.getElementById('platform-external-search-results');
+  if (!extEl) return;
+
+  if (platformExternalLoading) {
+    extEl.innerHTML = '<p class="text-xs text-amber-800 dark:text-amber-300 font-medium">🔎 Buscando capas na Amazon, Apple Books BR, Google Books e Open Library...</p>';
+    return;
+  }
+
+  if (platformExternalError) {
+    extEl.innerHTML = `<p class="text-xs text-rose-600 dark:text-rose-400">${escapeHtml(platformExternalError)}</p>`;
+    return;
+  }
+
+  if (normalizeSearchText(platformSearchTerm) !== lastPlatformExternalQuery || lastPlatformExternalResults.length === 0) {
+    extEl.innerHTML = '';
+    return;
+  }
+
+  extEl.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+      ${lastPlatformExternalResults.map((book, idx) => {
+        const thumb = safeUrl(book.thumbnail, '') || buildFallbackCoverDataUri(book.title, book.author);
+        const amazonHref = buildAmazonUrl(book);
+        return `
+          <div class="flex gap-3 p-3 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-700/80 items-start shadow-2xs">
+            <img src="${escapeHtml(thumb)}" alt="${escapeHtml(book.title)}"
+              ${renderBookCoverImgAttrs(book, `platform-ext-cover-${idx}`)}
+              class="w-14 aspect-[2/3] rounded-lg object-cover shadow-sm shrink-0 bg-stone-200 dark:bg-stone-700" />
+            <div class="flex-1 min-w-0 space-y-1.5">
+              <div class="flex items-start justify-between gap-2">
+                <h5 class="font-serif font-bold text-sm text-stone-900 dark:text-white line-clamp-1">${escapeHtml(book.title)}</h5>
+                <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">${escapeHtml(book.source || 'Catálogo')}</span>
+              </div>
+              <p class="text-xs text-stone-500 dark:text-stone-400 truncate">${escapeHtml(book.author)}${book.publishedDate ? ` • ${escapeHtml(String(book.publishedDate).slice(0, 4))}` : ''}</p>
+              <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <a href="${escapeHtml(amazonHref)}" target="_blank" rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-stone-950 text-[11px] font-bold transition">
+                  Comprar na Amazon
+                </a>
+                <button type="button" onclick="addExternalBookToMyShelf(${idx})"
+                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-forest-600 hover:bg-forest-700 text-white text-[11px] font-semibold transition">
+                  ➕ Adicionar à Minha Estante
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+window.searchExternalBooksForPlatform = async function () {
+  const rawTerm = (document.getElementById('platform-search-input')?.value || platformSearchTerm || '').trim();
+  if (rawTerm.length < 2) {
+    showToast('Digite pelo menos 2 caracteres para buscar no catálogo global.', 'ℹ️');
+    return;
+  }
+
+  platformSearchTerm = rawTerm;
+  if (platformSearchScope === 'users' || platformSearchScope === 'topics') {
+    platformSearchScope = 'all';
+  }
+
+  const seq = ++platformExternalSearchSeq;
+  lastPlatformExternalQuery = normalizeSearchText(rawTerm);
+  lastPlatformExternalResults = [];
+  platformExternalLoading = true;
+  platformExternalError = '';
+  renderPublicProfilesDirectory();
+  refreshIcons();
+
+  try {
+    const { books } = await searchBooksMultiSource(rawTerm);
+    if (seq !== platformExternalSearchSeq) return;
+
+    const limited = books.slice(0, 6);
+    lastPlatformExternalResults = limited;
+    platformExternalLoading = false;
+
+    if (limited.length === 0) {
+      platformExternalError = 'Nenhum resultado encontrado nas bases externas. Tente outro título, autor, ISBN ou link da Amazon.';
+    }
+
+    renderPlatformExternalResultsList();
+    refreshIcons();
+
+    if (limited.length > 0) {
+      void resolveBestCoversForResults(limited, (idx, resolvedUrl) => {
+        if (seq !== platformExternalSearchSeq || !lastPlatformExternalResults[idx] || !resolvedUrl) return;
+        lastPlatformExternalResults[idx].thumbnail = resolvedUrl;
+        const imgEl = document.getElementById(`platform-ext-cover-${idx}`);
+        if (imgEl) {
+          imgEl.dataset.fallbackApplied = '1';
+          imgEl.dataset.healingApplied = '1';
+          imgEl.src = resolvedUrl;
+        }
+      });
+    }
+  } catch (err) {
+    if (seq !== platformExternalSearchSeq) return;
+    platformExternalLoading = false;
+    platformExternalError = `Erro ao consultar catálogo global: ${err.message}`;
+    renderPlatformExternalResultsList();
+  }
+};
+
+window.addExternalBookToMyShelf = function (index) {
+  const picked = lastPlatformExternalResults[index];
+  if (!picked) return;
+
+  if (!authSession) {
+    pendingBookToImport = picked;
+    pendingAdminAfterAuth = true;
+    openAuthModal('login');
+    showToast('Entre ou crie sua conta para adicionar este livro à sua estante.', '🔐');
+    return;
+  }
+
+  switchMainView('admin');
+  switchAdminTab('add');
+  fillBookFormFromResult(picked);
+};
 
 function renderPublicProfilesDirectory() {
   const listEl = document.getElementById('public-profiles-list');
@@ -2440,7 +3506,7 @@ function renderReadingCards(books) {
           <button type="button" onclick="openBookModal('${escapeHtml(book.id)}')"
             class="group relative w-36 sm:w-44 aspect-[2/3] rounded-2xl overflow-hidden shadow-book book-spine-effect shrink-0 bg-stone-200 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500">
             <img src="${escapeHtml(coverSrc)}" alt="Capa de ${escapeHtml(book.title)}"
-              onerror="handleBookCoverError(this, '${escapeHtml(book.title)}', '${escapeHtml(book.author)}')"
+              ${renderBookCoverImgAttrs(book)}
               class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
           </button>
 
@@ -2523,7 +3589,7 @@ function renderGridCards(containerId, books, shelfType) {
             <button type="button" onclick="openBookModal('${escapeHtml(book.id)}')"
               class="w-24 aspect-[2/3] rounded-xl overflow-hidden shadow-book book-spine-effect shrink-0 bg-stone-200 dark:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500">
               <img src="${escapeHtml(coverSrc)}" alt="Capa de ${escapeHtml(book.title)}"
-                onerror="handleBookCoverError(this, '${escapeHtml(book.title)}', '${escapeHtml(book.author)}')"
+                ${renderBookCoverImgAttrs(book)}
                 class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
             </button>
 
@@ -2605,8 +3671,16 @@ window.openBookModal = function (bookId) {
 
   const coverEl = document.getElementById('modal-book-cover');
   coverEl.dataset.fallbackApplied = '';
+  coverEl.dataset.healingApplied = '';
+  coverEl.dataset.bookId = book.id || '';
+  coverEl.dataset.bookTitle = book.title || '';
+  coverEl.dataset.bookAuthor = book.author || '';
+  coverEl.dataset.bookIsbn = book.isbn || '';
+  coverEl.onload = function () {
+    handleBookCoverLoad(this);
+  };
   coverEl.onerror = function () {
-    handleBookCoverError(this, book.title, book.author);
+    handleBookCoverError(this);
   };
   coverEl.src = safeUrl(book.coverUrl, '') || buildFallbackCoverDataUri(book.title, book.author);
   coverEl.alt = `Capa de ${book.title}`;
@@ -2842,63 +3916,228 @@ window.handleBackdropClick = function (event, modalId) {
 };
 
 /* ==========================================================================
-   PAINEL ADMIN — SUB-ABA 1: GOOGLE BOOKS + OPEN LIBRARY FALLBACK & FORMULÁRIO
+   PAINEL ADMIN — SUB-ABA 1: BUSCA MULTI-FONTE (AMAZON / APPLE BR / GOOGLE / OL) & FORMULÁRIO
    ========================================================================== */
-async function searchGoogleBooks(query) {
-  const endpoint = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=8`;
-  const res = await fetch(endpoint);
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const data = await res.json();
-  const items = Array.isArray(data.items) ? data.items : [];
+let adminSearchSeq = 0;
+let platformExternalSearchSeq = 0;
+let formCoverLookupSeq = 0;
 
+async function searchAppleBooksBR(query) {
+  const cleanQ = String(query || '').trim();
+  if (!cleanQ) return [];
+  const endpoint = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&media=ebook&entity=ebook&country=br&limit=10`;
+  const data = await fetchJsonWithTimeout(endpoint, 6000);
+  const items = Array.isArray(data.results) ? data.results : [];
+
+  return items.map((item) => {
+    const rawArt = safeUrl(item.artworkUrl100 || item.artworkUrl60 || '', '');
+    const hdArt = rawArt ? rawArt.replace(/\d+x\d+bb/i, '600x900bb') : '';
+    const sqArt = rawArt ? rawArt.replace(/\d+x\d+bb/i, '600x600bb') : '';
+    const candidates = [hdArt, sqArt, rawArt].filter(Boolean);
+
+    return {
+      title: item.trackName || 'Sem título',
+      author: item.artistName || 'Autor desconhecido',
+      description: stripHtmlTags(item.description || ''),
+      thumbnail: hdArt || sqArt || rawArt,
+      coverCandidates: candidates,
+      isbn: '',
+      asin: '',
+      publishedDate: item.releaseDate ? String(item.releaseDate).slice(0, 10) : '',
+      source: 'Amazon / Apple Books BR'
+    };
+  });
+}
+
+async function fetchGoodreadsAmazonCoverByIsbn(isbn) {
+  if (goodreadsConsecutiveFailures >= 2) return '';
+  const clean = cleanIsbn(isbn);
+  const isbn13 = clean.length === 10 ? isbn10ToIsbn13(clean) : clean;
+  if (!isbn13 || isbn13.length !== 13) return '';
+
+  const cacheKey = `isbn:${isbn13}`;
+  if (goodreadsCoverCache.has(cacheKey)) {
+    return goodreadsCoverCache.get(cacheKey);
+  }
+
+  const promise = (async () => {
+    try {
+      const data = await fetchJsonWithTimeout(
+        `https://bookcover.longitood.com/bookcover?isbn=${encodeURIComponent(isbn13)}`,
+        1800
+      );
+      const url = normalizeCoverCandidateUrl(data?.url || '');
+      if (url) goodreadsConsecutiveFailures = 0;
+      return url;
+    } catch (_) {
+      goodreadsConsecutiveFailures++;
+      return '';
+    }
+  })();
+
+  goodreadsCoverCache.set(cacheKey, promise);
+  return promise;
+}
+
+async function fetchGoodreadsAmazonCoverByTitle(title, author) {
+  if (goodreadsConsecutiveFailures >= 2) return '';
+  const cleanTitle = String(title || '').trim();
+  const cleanAuthor = String(author || '').trim();
+  if (!cleanTitle || cleanTitle === 'Sem título' || !cleanAuthor || cleanAuthor === 'Autor desconhecido') {
+    return '';
+  }
+
+  const cacheKey = `title:${normalizeSearchText(cleanTitle)}::${normalizeSearchText(cleanAuthor)}`;
+  if (goodreadsCoverCache.has(cacheKey)) {
+    return goodreadsCoverCache.get(cacheKey);
+  }
+
+  const promise = (async () => {
+    try {
+      const url = `https://bookcover.longitood.com/bookcover?book_title=${encodeURIComponent(cleanTitle)}&author_name=${encodeURIComponent(cleanAuthor)}`;
+      const data = await fetchJsonWithTimeout(url, 1800);
+      const resolved = normalizeCoverCandidateUrl(data?.url || '');
+      if (resolved) goodreadsConsecutiveFailures = 0;
+      return resolved;
+    } catch (_) {
+      goodreadsConsecutiveFailures++;
+      return '';
+    }
+  })();
+
+  goodreadsCoverCache.set(cacheKey, promise);
+  return promise;
+}
+
+async function fetchGoodreadsAmazonCover({ title = '', author = '', isbn = '' } = {}) {
+  const byIsbn = await fetchGoodreadsAmazonCoverByIsbn(isbn);
+  if (byIsbn) return byIsbn;
+  return fetchGoodreadsAmazonCoverByTitle(title, author);
+}
+
+async function searchBrasilApiIsbn(isbn) {
+  const clean = cleanIsbn(isbn);
+  if (!clean) return [];
+  const data = await fetchJsonWithTimeout(`https://brasilapi.com.br/api/isbn/v1/${encodeURIComponent(clean)}`, 5500);
+  if (!data || !data.title) return [];
+
+  const title = [data.title, data.subtitle].filter(Boolean).join(': ').trim() || 'Sem título';
+  const author = Array.isArray(data.authors) && data.authors.length ? data.authors.join(', ') : 'Autor desconhecido';
+  const resolvedIsbn = cleanIsbn(data.isbn) || clean;
+  const asin = isbn13ToIsbn10(resolvedIsbn);
+  const directCover = normalizeCoverCandidateUrl(data.cover_url || '');
+  const olFallback = `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(resolvedIsbn)}-L.jpg?default=false`;
+  const candidates = [
+    ...buildAmazonDirectCoverCandidates(asin || resolvedIsbn),
+    directCover,
+    olFallback
+  ].filter(Boolean);
+
+  return [{
+    title,
+    author,
+    description: stripHtmlTags(data.synopsis || ''),
+    thumbnail: directCover || candidates[0] || '',
+    coverCandidates: candidates,
+    isbn: resolvedIsbn,
+    asin,
+    publishedDate: data.year ? String(data.year) : '',
+    source: 'BrasilAPI / ISBN'
+  }];
+}
+
+function parseGoogleBookItems(items = []) {
   return items.map((item) => {
     const info = item.volumeInfo || {};
     const imageLinks = info.imageLinks || {};
-    let thumb = imageLinks.thumbnail || imageLinks.smallThumbnail || '';
-    if (thumb) {
-      thumb = thumb.replace(/^http:\/\//i, 'https://').replace(/&edge=curl/gi, '');
-    }
+    const rawThumb = imageLinks.thumbnail || imageLinks.smallThumbnail || '';
+    const thumb = normalizeCoverCandidateUrl(rawThumb);
+    const highResVariants = [
+      normalizeCoverCandidateUrl(imageLinks.extraLarge || ''),
+      normalizeCoverCandidateUrl(imageLinks.large || ''),
+      normalizeCoverCandidateUrl(imageLinks.medium || ''),
+      thumb && /([?&])zoom=\d+/i.test(thumb) ? thumb.replace(/([?&])zoom=\d+/i, '$1zoom=2') : '',
+      thumb
+    ].filter(Boolean);
 
     const identifiers = Array.isArray(info.industryIdentifiers) ? info.industryIdentifiers : [];
     const isbn13 = identifiers.find((id) => id.type === 'ISBN_13');
     const isbn10 = identifiers.find((id) => id.type === 'ISBN_10');
-    const isbn = (isbn13 || isbn10 || {}).identifier || '';
+    const isbn = cleanIsbn((isbn13 || isbn10 || {}).identifier || '');
+    const asin = (isbn10 && cleanIsbn(isbn10.identifier)) || isbn13ToIsbn10(isbn);
+    const olFallback = isbn ? `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(isbn)}-L.jpg?default=false` : '';
 
-    if (!thumb && isbn) {
-      thumb = `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(isbn)}-L.jpg`;
-    }
+    const coverCandidates = [
+      ...buildAmazonDirectCoverCandidates(asin || isbn),
+      ...highResVariants,
+      olFallback
+    ].filter(Boolean);
 
     return {
       title: info.title || 'Sem título',
       author: Array.isArray(info.authors) && info.authors.length ? info.authors.join(', ') : 'Autor desconhecido',
-      description: info.description || '',
-      thumbnail: thumb,
+      description: stripHtmlTags(info.description || ''),
+      thumbnail: highResVariants[0] || thumb || olFallback || '',
+      coverCandidates,
       isbn,
+      asin,
       publishedDate: info.publishedDate || '',
       source: 'Google Books'
     };
   });
 }
 
-async function searchOpenLibrary(query) {
-  const endpoint = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=8&fields=key,title,author_name,first_publish_year,isbn,cover_i,first_sentence`;
-  const res = await fetch(endpoint);
-  if (!res.ok) {
-    throw new Error(`Open Library HTTP ${res.status}`);
+async function searchGoogleBooks(query) {
+  const raw = String(query || '').trim();
+  if (!raw) return [];
+
+  const isbnQuery = raw.replace(/^isbn:/i, '');
+  const detectedIsbn = cleanIsbn(isbnQuery);
+
+  if (detectedIsbn) {
+    const endpoint = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(detectedIsbn)}&maxResults=8`;
+    const data = await fetchJsonWithTimeout(endpoint, 6000);
+    return parseGoogleBookItems(Array.isArray(data.items) ? data.items : []);
   }
-  const data = await res.json();
+
+  const ptEndpoint = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(raw)}&langRestrict=pt&maxResults=8`;
+  const allEndpoint = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(raw)}&maxResults=8`;
+  const [ptRes, allRes] = await Promise.allSettled([
+    fetchJsonWithTimeout(ptEndpoint, 6000),
+    fetchJsonWithTimeout(allEndpoint, 6000)
+  ]);
+
+  if (ptRes.status === 'rejected' && allRes.status === 'rejected') {
+    throw ptRes.reason || allRes.reason;
+  }
+
+  const ptItems = ptRes.status === 'fulfilled' && Array.isArray(ptRes.value?.items) ? parseGoogleBookItems(ptRes.value.items) : [];
+  const allItems = allRes.status === 'fulfilled' && Array.isArray(allRes.value?.items) ? parseGoogleBookItems(allRes.value.items) : [];
+  return mergeUniqueBookResults(ptItems, allItems, 10);
+}
+
+async function searchOpenLibrary(query) {
+  const cleanQ = String(query || '').trim();
+  if (!cleanQ) return [];
+  const endpoint = `https://openlibrary.org/search.json?q=${encodeURIComponent(cleanQ)}&limit=8&fields=key,title,author_name,first_publish_year,isbn,cover_i,first_sentence,id_amazon`;
+  const data = await fetchJsonWithTimeout(endpoint, 6500);
   const docs = Array.isArray(data.docs) ? data.docs : [];
 
   return docs.map((doc) => {
-    const isbn = Array.isArray(doc.isbn) && doc.isbn.length ? String(doc.isbn[0]) : '';
-    let thumb = '';
-    if (doc.cover_i) {
-      thumb = `https://covers.openlibrary.org/b/id/${encodeURIComponent(doc.cover_i)}-L.jpg`;
-    } else if (isbn) {
-      thumb = `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(isbn)}-L.jpg`;
-    }
+    const isbnList = Array.isArray(doc.isbn) ? doc.isbn.map((i) => cleanIsbn(i)).filter(Boolean) : [];
+    const isbn13 = isbnList.find((i) => i.length === 13 && i.startsWith('978')) || isbnList.find((i) => i.length === 13) || '';
+    const isbn = isbn13 || isbnList[0] || '';
+    const amazonIds = Array.isArray(doc.id_amazon) ? doc.id_amazon.map((a) => String(a || '').trim().toUpperCase()).filter(Boolean) : [];
+    const asin = amazonIds[0] || isbn13ToIsbn10(isbn);
+
+    const olById = doc.cover_i ? `https://covers.openlibrary.org/b/id/${encodeURIComponent(doc.cover_i)}-L.jpg?default=false` : '';
+    const olByIsbn = isbn ? `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(isbn)}-L.jpg?default=false` : '';
+
+    const coverCandidates = [
+      ...buildAmazonDirectCoverCandidates(asin || isbn),
+      olById,
+      olByIsbn
+    ].filter(Boolean);
 
     let description = '';
     if (typeof doc.first_sentence === 'string') {
@@ -2912,24 +4151,42 @@ async function searchOpenLibrary(query) {
     return {
       title: doc.title || 'Sem título',
       author: Array.isArray(doc.author_name) && doc.author_name.length ? doc.author_name.join(', ') : 'Autor desconhecido',
-      description,
-      thumbnail: thumb,
+      description: stripHtmlTags(description),
+      thumbnail: olById || olByIsbn || coverCandidates[0] || '',
+      coverCandidates,
       isbn,
+      asin,
       publishedDate: doc.first_publish_year ? String(doc.first_publish_year) : '',
       source: 'Open Library'
     };
   });
 }
 
+function getBookMatchSignature(book) {
+  const baseTitle = normalizeSearchText(book?.title || '')
+    .split(/[:(\[]/)[0]
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const firstAuthor = normalizeSearchText(book?.author || '').split(',')[0].trim();
+  const authorParts = firstAuthor.split(/\s+/).filter(Boolean);
+  const lastSurname = authorParts[authorParts.length - 1] || '';
+  return { baseTitle, lastSurname };
+}
+
 function mergeUniqueBookResults(primary, secondary, limit = 8) {
   const merged = [...primary];
   const seen = new Set(
-    primary.map((b) => `${(b.title || '').toLowerCase()}::${(b.author || '').toLowerCase()}`)
+    primary.map((b) => {
+      const sig = getBookMatchSignature(b);
+      return `${sig.baseTitle}::${sig.lastSurname}`;
+    })
   );
 
   for (const item of secondary) {
     if (merged.length >= limit) break;
-    const key = `${(item.title || '').toLowerCase()}::${(item.author || '').toLowerCase()}`;
+    const sig = getBookMatchSignature(item);
+    const key = `${sig.baseTitle}::${sig.lastSurname}`;
     const duplicateIsbn = item.isbn && merged.some((m) => m.isbn && m.isbn === item.isbn);
     if (!seen.has(key) && !duplicateIsbn) {
       seen.add(key);
@@ -2939,112 +4196,509 @@ function mergeUniqueBookResults(primary, secondary, limit = 8) {
   return merged;
 }
 
+function mergeAndEnrichBookResults(sourceBuckets, parsedInput = {}, limit = 10) {
+  const merged = [];
+
+  const findExistingMatch = (item) => {
+    const itemIsbn = cleanIsbn(item.isbn);
+    const itemSig = getBookMatchSignature(item);
+    return merged.find((existing) => {
+      const exIsbn = cleanIsbn(existing.isbn);
+      if (itemIsbn && exIsbn && itemIsbn === exIsbn) return true;
+      const exSig = getBookMatchSignature(existing);
+      if (!itemSig.baseTitle || !exSig.baseTitle) return false;
+      if (itemSig.baseTitle !== exSig.baseTitle) return false;
+      if (!itemSig.lastSurname || !exSig.lastSurname || itemSig.lastSurname === 'desconhecido' || exSig.lastSurname === 'desconhecido') {
+        return true;
+      }
+      return itemSig.lastSurname === exSig.lastSurname;
+    });
+  };
+
+  for (const bucket of sourceBuckets) {
+    for (const rawItem of bucket) {
+      const item = {
+        ...rawItem,
+        isbn: cleanIsbn(rawItem.isbn),
+        asin: rawItem.asin || (rawItem.isbn ? isbn13ToIsbn10(rawItem.isbn) : ''),
+        coverCandidates: Array.isArray(rawItem.coverCandidates) ? [...rawItem.coverCandidates] : []
+      };
+
+      const existing = findExistingMatch(item);
+      if (existing) {
+        if (!existing.isbn && item.isbn) existing.isbn = item.isbn;
+        if (!existing.asin && item.asin) existing.asin = item.asin;
+        if ((!existing.author || existing.author === 'Autor desconhecido') && item.author && item.author !== 'Autor desconhecido') {
+          existing.author = item.author;
+        }
+        if ((item.description || '').length > (existing.description || '').length) {
+          existing.description = item.description;
+        }
+        if (!existing.publishedDate && item.publishedDate) {
+          existing.publishedDate = item.publishedDate;
+        }
+        existing.coverCandidates = buildOrderedCoverCandidates({
+          ...existing,
+          coverCandidates: [...existing.coverCandidates, ...item.coverCandidates, item.thumbnail]
+        });
+        if (item.source && !existing.source.includes(item.source)) {
+          existing.source = `${existing.source} + ${item.source}`;
+        }
+        if (!existing.thumbnail && item.thumbnail) {
+          existing.thumbnail = item.thumbnail;
+        }
+      } else if (merged.length < limit) {
+        item.coverCandidates = buildOrderedCoverCandidates(item);
+        merged.push(item);
+      }
+    }
+  }
+
+  if (parsedInput.asin && merged[0]) {
+    if (!merged[0].asin) merged[0].asin = parsedInput.asin;
+    if (!merged[0].isbn && parsedInput.isbn13) merged[0].isbn = parsedInput.isbn13;
+    merged[0].coverCandidates = buildOrderedCoverCandidates(merged[0]);
+  }
+
+  return merged;
+}
+
+async function searchBooksMultiSource(rawQuery) {
+  const parsed = parseAmazonInput(rawQuery);
+  const effectiveIsbn = parsed.isbn13 || parsed.isbn10 || '';
+  const effectiveText = parsed.slugQuery || (!parsed.isAmazonUrl ? String(rawQuery || '').trim() : '');
+
+  if (parsed.isAmazonUrl && !parsed.asin && !effectiveIsbn && !effectiveText) {
+    return { books: [], parsed, allFailed: false };
+  }
+
+  const googleQuery = effectiveIsbn ? `isbn:${effectiveIsbn}` : effectiveText;
+  const openLibQuery = effectiveIsbn || effectiveText;
+  const appleQuery = effectiveText || effectiveIsbn;
+
+  const [brRes, appleRes, googleRes, olRes] = await Promise.allSettled([
+    effectiveIsbn ? searchBrasilApiIsbn(effectiveIsbn) : Promise.resolve([]),
+    appleQuery ? searchAppleBooksBR(appleQuery) : Promise.resolve([]),
+    googleQuery ? searchGoogleBooks(googleQuery) : Promise.resolve([]),
+    openLibQuery ? searchOpenLibrary(openLibQuery) : Promise.resolve([])
+  ]);
+
+  const brBooks = brRes.status === 'fulfilled' ? brRes.value : [];
+  let appleBooks = appleRes.status === 'fulfilled' ? appleRes.value : [];
+  let googleBooks = googleRes.status === 'fulfilled' ? googleRes.value : [];
+  const olBooks = olRes.status === 'fulfilled' ? olRes.value : [];
+
+  // Se pesquisou apenas por ISBN e Google não trouxe nada, tenta pelo texto extraído ou título da BrasilAPI/OL
+  const discoveredBook = brBooks[0] || googleBooks[0] || olBooks[0];
+  if (effectiveIsbn && appleBooks.length === 0 && discoveredBook && discoveredBook.title && discoveredBook.title !== 'Sem título') {
+    const titleAuthorQ = [
+      discoveredBook.title,
+      discoveredBook.author && discoveredBook.author !== 'Autor desconhecido' ? discoveredBook.author : ''
+    ].filter(Boolean).join(' ');
+    if (titleAuthorQ) {
+      const [extraApple, extraGoogle] = await Promise.allSettled([
+        searchAppleBooksBR(titleAuthorQ),
+        googleBooks.length === 0 ? searchGoogleBooks(titleAuthorQ) : Promise.resolve(googleBooks)
+      ]);
+      if (extraApple.status === 'fulfilled') appleBooks = extraApple.value;
+      if (extraGoogle.status === 'fulfilled' && googleBooks.length === 0) googleBooks = extraGoogle.value;
+    }
+  }
+
+  let books = mergeAndEnrichBookResults([brBooks, appleBooks, googleBooks, olBooks], parsed, 10);
+
+  // Caso o usuário tenha colado um ASIN Kindle sem slug de título e os catálogos não retornaram, tenta capa direta da Amazon
+  if (books.length === 0 && parsed.asin) {
+    const directCandidates = buildAmazonDirectCoverCandidates(parsed.asin);
+    let foundDirect = '';
+    for (const candidate of directCandidates) {
+      const ok = await probeImageUrl(candidate);
+      if (ok) {
+        foundDirect = ok;
+        break;
+      }
+    }
+    if (foundDirect) {
+      books = [{
+        title: effectiveText || `Livro Amazon (${parsed.asin})`,
+        author: 'Autor desconhecido',
+        description: '',
+        thumbnail: foundDirect,
+        coverCandidates: [foundDirect, ...directCandidates],
+        isbn: effectiveIsbn,
+        asin: parsed.asin,
+        publishedDate: '',
+        source: 'Amazon CDN'
+      }];
+    }
+  }
+
+  const allFailed = [brRes, appleRes, googleRes, olRes].every((r) => r.status === 'rejected');
+  return { books, parsed, allFailed };
+}
+
+async function resolveBestCoversForResults(books, onCoverUpdated) {
+  if (!Array.isArray(books) || books.length === 0) return;
+
+  const concurrency = 4;
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < books.length) {
+      const idx = cursor++;
+      const book = books[idx];
+      if (!book) continue;
+      try {
+        const resolvedUrl = await resolveBestCoverForBook({
+          title: book.title,
+          author: book.author,
+          isbn: book.isbn || '',
+          asin: book.asin || '',
+          coverCandidates: book.coverCandidates || [],
+          thumbnail: book.thumbnail || ''
+        });
+        if (resolvedUrl) {
+          onCoverUpdated(idx, resolvedUrl);
+        }
+      } catch (_) {}
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, books.length) }, () => worker()));
+}
+
 window.handleGoogleBooksSearch = async function (event) {
   event.preventDefault();
   const query = document.getElementById('google-books-query').value.trim();
   if (!query) return;
 
+  const mySeq = ++adminSearchSeq;
   const statusEl = document.getElementById('google-books-status');
   const resultsEl = document.getElementById('google-books-results');
   const btn = document.getElementById('btn-google-search');
 
   statusEl.classList.remove('hidden');
-  statusEl.textContent = 'Buscando obras no Google Books...';
+  statusEl.textContent = 'Buscando obras e capas na Amazon, Apple Books BR, Google Books e Open Library...';
   resultsEl.innerHTML = '';
   btn.disabled = true;
 
   try {
-    let books = [];
-    let googleFailed = false;
-
-    try {
-      books = await searchGoogleBooks(query);
-    } catch (err) {
-      googleFailed = true;
-      console.warn('Google Books falhou, acionando fallback Open Library:', err);
-    }
-
-    if (googleFailed || books.length === 0) {
-      statusEl.textContent = googleFailed
-        ? 'Google Books indisponível. Consultando Open Library como plano B...'
-        : 'Nenhum resultado no Google Books. Consultando Open Library...';
-      const olBooks = await searchOpenLibrary(query);
-      books = olBooks;
-    } else if (books.length < 4) {
-      try {
-        const olBooks = await searchOpenLibrary(query);
-        books = mergeUniqueBookResults(books, olBooks, 8);
-      } catch (olErr) {
-        console.warn('Complemento Open Library falhou:', olErr);
-      }
-    }
+    const { books, parsed, allFailed } = await searchBooksMultiSource(query);
+    if (mySeq !== adminSearchSeq) return;
 
     lastBookSearchResults = books;
 
     if (books.length === 0) {
-      statusEl.textContent = 'Nenhum livro encontrado no Google Books nem na Open Library. Preencha os campos manualmente abaixo.';
+      if (parsed.isAmazonUrl && !parsed.asin && !parsed.slugQuery) {
+        statusEl.textContent = 'Link encurtado da Amazon sem ASIN visível. Cole o link completo (amazon.com.br/.../dp/...) ou busque pelo título/ISBN.';
+      } else if (allFailed) {
+        statusEl.textContent = 'Não foi possível consultar os catálogos externos no momento. Preencha os campos manualmente abaixo.';
+      } else {
+        statusEl.textContent = 'Nenhum livro encontrado nas bases consultadas. Tente outro termo ou preencha os campos manualmente abaixo.';
+      }
       return;
     }
 
-    statusEl.textContent = `${books.length} resultados encontrados. Clique em "Usar este livro" para preencher o formulário abaixo:`;
+    statusEl.textContent = `${books.length} resultados encontrados. Verificando melhores capas da Amazon... Clique em "Usar este livro" para preencher abaixo:`;
     resultsEl.innerHTML = books.map((book, idx) => {
-      const thumb = book.thumbnail || buildFallbackCoverDataUri(book.title, book.author);
-      const isOpenLibrary = book.source === 'Open Library';
-      const sourceBadgeClass = isOpenLibrary
+      const thumb = safeUrl(book.thumbnail, '') || buildFallbackCoverDataUri(book.title, book.author);
+      const amazonHref = buildAmazonUrl(book);
+      const isAmazonOrApple = /Amazon|Apple|BrasilAPI/i.test(book.source || '');
+      const sourceBadgeClass = isAmazonOrApple
         ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
         : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300';
 
       return `
         <div class="flex gap-3.5 p-3 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200/80 dark:border-stone-700/80 items-start">
           <img src="${escapeHtml(thumb)}" alt="${escapeHtml(book.title)}"
-            onerror="handleBookCoverError(this, '${escapeHtml(book.title)}', '${escapeHtml(book.author)}')"
+            ${renderBookCoverImgAttrs(book, `search-result-cover-${idx}`)}
             class="w-16 h-24 rounded-lg object-cover shadow-sm shrink-0 bg-stone-200 dark:bg-stone-700" />
           <div class="flex-1 min-w-0 space-y-1">
             <div class="flex items-start justify-between gap-2">
               <h4 class="font-bold text-sm text-stone-900 dark:text-white line-clamp-2 leading-snug">${escapeHtml(book.title)}</h4>
-              <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${sourceBadgeClass}">${escapeHtml(book.source || 'Google Books')}</span>
+              <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${sourceBadgeClass}">${escapeHtml(book.source || 'Catálogo')}</span>
             </div>
-            <p class="text-xs text-stone-500 dark:text-stone-400 truncate">${escapeHtml(book.author)}${book.publishedDate ? ` • ${escapeHtml(book.publishedDate.slice(0, 4))}` : ''}</p>
+            <p class="text-xs text-stone-500 dark:text-stone-400 truncate">
+              ${escapeHtml(book.author)}${book.publishedDate ? ` • ${escapeHtml(String(book.publishedDate).slice(0, 4))}` : ''}${book.isbn ? ` • ISBN ${escapeHtml(book.isbn)}` : ''}
+            </p>
             <p class="text-[11px] text-stone-500 dark:text-stone-400 line-clamp-2">${escapeHtml(book.description || 'Sem sinopse na base.')}</p>
-            <button type="button" onclick="selectGoogleBook(${idx})"
-              class="mt-1.5 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition">
-              <span>Usar este livro</span>
-            </button>
+            <div class="mt-1.5 flex flex-wrap items-center gap-2">
+              <button type="button" onclick="selectGoogleBook(${idx})"
+                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition">
+                <span>Usar este livro</span>
+              </button>
+              <a href="${escapeHtml(amazonHref)}" target="_blank" rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/60 dark:hover:bg-amber-900/70 text-amber-900 dark:text-amber-200 text-xs font-semibold transition">
+                <span>Ver na Amazon</span>
+              </a>
+            </div>
           </div>
         </div>
       `;
     }).join('');
+
+    void resolveBestCoversForResults(books, (idx, resolvedUrl) => {
+      if (mySeq !== adminSearchSeq || !lastBookSearchResults[idx] || !resolvedUrl) return;
+      lastBookSearchResults[idx].thumbnail = resolvedUrl;
+      const imgEl = document.getElementById(`search-result-cover-${idx}`);
+      if (imgEl) {
+        imgEl.dataset.fallbackApplied = '1';
+        imgEl.dataset.healingApplied = '1';
+        imgEl.src = resolvedUrl;
+      }
+    }).then(() => {
+      if (mySeq === adminSearchSeq && statusEl && lastBookSearchResults.length > 0) {
+        statusEl.textContent = `${lastBookSearchResults.length} resultados encontrados. Clique em "Usar este livro" para preencher o formulário abaixo:`;
+      }
+    });
   } catch (err) {
-    statusEl.textContent = `Não foi possível consultar as bases de livros (${err.message}). Você pode preencher os campos manualmente abaixo.`;
+    if (mySeq === adminSearchSeq) {
+      statusEl.textContent = `Não foi possível consultar as bases de livros (${err.message}). Você pode preencher os campos manualmente abaixo.`;
+    }
   } finally {
-    btn.disabled = false;
+    if (mySeq === adminSearchSeq) {
+      btn.disabled = false;
+    }
   }
 };
 
-window.selectGoogleBook = function (index) {
-  const picked = lastBookSearchResults[index];
+function fillBookFormFromResult(picked) {
   if (!picked) return;
-
-  document.getElementById('book-title').value = picked.title;
-  document.getElementById('book-author').value = picked.author;
-  document.getElementById('book-cover').value = picked.thumbnail;
-  document.getElementById('book-synopsis').value = picked.description;
+  const seq = ++formCoverLookupSeq;
+  document.getElementById('book-title').value = picked.title || '';
+  document.getElementById('book-author').value = picked.author || '';
+  document.getElementById('book-cover').value = picked.thumbnail || '';
+  document.getElementById('book-synopsis').value = picked.description || '';
   document.getElementById('book-isbn').value = picked.isbn || '';
-  updateCoverPreview(picked.thumbnail);
+  updateCoverPreview(picked.thumbnail || '');
+  renderFormCoverGallery([], '');
+
+  const rawCandidates = (Array.isArray(picked.coverCandidates) ? picked.coverCandidates : [])
+    .filter((u) => u && !u.startsWith('data:image/'))
+    .slice(0, 8);
+
+  if (rawCandidates.length > 0) {
+    void Promise.all(rawCandidates.map((u) => probeImageUrl(u))).then((probed) => {
+      if (seq !== formCoverLookupSeq) return;
+      const validEntries = [];
+      const seen = new Set();
+      for (const validUrl of probed) {
+        if (validUrl && !seen.has(validUrl)) {
+          seen.add(validUrl);
+          validEntries.push({ url: validUrl, source: classifyCoverSource(validUrl) });
+        }
+      }
+      if (validEntries.length > 1) {
+        renderFormCoverGallery(validEntries, 'Outras capas verificadas para esta obra (clique para alternar):');
+      }
+    });
+  }
 
   document.getElementById('book-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  showToast(`Dados importados (${picked.source || 'Google Books'})! Escolha a prateleira e salve.`, '📚');
+  showToast(`Dados importados (${picked.source || 'Catálogo'})! Escolha a prateleira e salve.`, '📚');
+}
+
+window.selectGoogleBook = function (index) {
+  fillBookFormFromResult(lastBookSearchResults[index]);
+};
+
+function renderFormCoverGallery(items = [], statusMessage = '', isError = false) {
+  const galleryEl = document.getElementById('book-cover-gallery');
+  if (!galleryEl) return;
+
+  lastFormCoverGallery = Array.isArray(items) ? items : [];
+
+  if (!statusMessage && lastFormCoverGallery.length === 0) {
+    galleryEl.classList.add('hidden');
+    galleryEl.innerHTML = '';
+    return;
+  }
+
+  galleryEl.classList.remove('hidden');
+  const currentCover = (document.getElementById('book-cover')?.value || '').trim();
+
+  const headerHtml = statusMessage
+    ? `<p class="text-[11px] font-semibold ${isError ? 'text-rose-600 dark:text-rose-400' : 'text-stone-600 dark:text-stone-300'}">${escapeHtml(statusMessage)}</p>`
+    : '';
+
+  const thumbsHtml = lastFormCoverGallery.length > 0
+    ? `<div class="flex flex-wrap gap-2.5 pt-1">
+        ${lastFormCoverGallery.map((entry, idx) => {
+          const isSelected = currentCover === entry.url;
+          return `
+            <button type="button" onclick="selectFormCoverFromGallery(${idx})"
+              class="group flex flex-col items-center gap-1 p-1.5 rounded-xl border transition text-center w-20 ${
+                isSelected
+                  ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 ring-2 ring-amber-400/40'
+                  : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 hover:border-amber-400'
+              }">
+              <img src="${escapeHtml(entry.url)}" alt="${escapeHtml(entry.source)}"
+                class="w-14 h-20 object-cover rounded-lg bg-stone-200 dark:bg-stone-800 shadow-xs" />
+              <span class="text-[10px] font-semibold text-stone-600 dark:text-stone-300 line-clamp-1 w-full">${escapeHtml(entry.source)}</span>
+            </button>
+          `;
+        }).join('')}
+      </div>`
+    : '';
+
+  galleryEl.innerHTML = headerHtml + thumbsHtml;
+}
+
+window.selectFormCoverFromGallery = function (index) {
+  const entry = lastFormCoverGallery[index];
+  if (!entry) return;
+  document.getElementById('book-cover').value = entry.url;
+  updateCoverPreview(entry.url);
+  renderFormCoverGallery(lastFormCoverGallery, `Capa selecionada (${entry.source}). Clique em "Salvar na Estante" para confirmar.`);
+  showToast(`Capa (${entry.source}) aplicada ao formulário!`, '🖼️');
+};
+
+window.handleBookCoverInput = async function (rawValue) {
+  const value = String(rawValue || '').trim();
+  const parsed = parseAmazonInput(value);
+
+  if (!parsed.isAmazonUrl) {
+    updateCoverPreview(value);
+    return;
+  }
+
+  // Evita carregar página HTML da Amazon diretamente como <img>
+  updateCoverPreview('');
+  const seq = ++formCoverLookupSeq;
+  renderFormCoverGallery([], '🔎 Link da Amazon detectado! Extraindo capa oficial e dados do livro...');
+
+  try {
+    const titleVal = document.getElementById('book-title').value.trim();
+    const authorVal = document.getElementById('book-author').value.trim();
+    const isbnVal = document.getElementById('book-isbn').value.trim();
+
+    const { books } = await searchBooksMultiSource(value);
+    if (seq !== formCoverLookupSeq) return;
+
+    const first = books[0];
+    if (first) {
+      if (!titleVal && first.title && first.title !== 'Sem título') {
+        document.getElementById('book-title').value = first.title;
+      }
+      if (!authorVal && first.author && first.author !== 'Autor desconhecido') {
+        document.getElementById('book-author').value = first.author;
+      }
+      if (!document.getElementById('book-synopsis').value.trim() && first.description) {
+        document.getElementById('book-synopsis').value = first.description;
+      }
+      if (!isbnVal && first.isbn) {
+        document.getElementById('book-isbn').value = first.isbn;
+      }
+    }
+
+    const gallery = await resolveCoverGalleryForBook({
+      title: first?.title || titleVal || parsed.slugQuery,
+      author: first?.author || authorVal,
+      isbn: first?.isbn || parsed.isbn13 || parsed.isbn10 || isbnVal,
+      asin: first?.asin || parsed.asin
+    });
+    if (seq !== formCoverLookupSeq) return;
+
+    if (gallery.length > 0) {
+      document.getElementById('book-cover').value = gallery[0].url;
+      updateCoverPreview(gallery[0].url);
+      renderFormCoverGallery(gallery, `${gallery.length} ${gallery.length === 1 ? 'capa encontrada' : 'capas encontradas'} para o link da Amazon. Clique para escolher:`);
+      showToast('Capa extraída a partir do link da Amazon!', '🖼️');
+    } else {
+      renderFormCoverGallery([], 'Não foi possível extrair uma capa deste link da Amazon (links curtos como a.co não expõem o ASIN). Digite o título acima e clique em "Buscar Capas na Amazon".', true);
+    }
+  } catch (err) {
+    if (seq === formCoverLookupSeq) {
+      renderFormCoverGallery([], `Erro ao processar link da Amazon: ${err.message}`, true);
+    }
+  }
+};
+
+window.handleFetchCoverGalleryForForm = async function () {
+  const title = document.getElementById('book-title').value.trim();
+  const author = document.getElementById('book-author').value.trim();
+  const isbn = document.getElementById('book-isbn').value.trim();
+  const coverField = document.getElementById('book-cover').value.trim();
+  const parsed = parseAmazonInput(coverField);
+
+  const effectiveTitle = title || parsed.slugQuery;
+  const effectiveIsbn = isbn || parsed.isbn13 || parsed.isbn10;
+  const effectiveAsin = parsed.asin;
+
+  if (!effectiveTitle && !effectiveIsbn && !effectiveAsin) {
+    showToast('Digite o título do livro, ISBN ou cole um link da Amazon primeiro.', 'ℹ️');
+    return;
+  }
+
+  const seq = ++formCoverLookupSeq;
+  const btn = document.getElementById('btn-fetch-amazon-covers');
+  if (btn) btn.disabled = true;
+  renderFormCoverGallery([], '🔎 Buscando capas na Amazon CDN, Apple Books BR, Google Books e Open Library...');
+
+  try {
+    const gallery = await resolveCoverGalleryForBook({
+      title: effectiveTitle,
+      author,
+      isbn: effectiveIsbn,
+      asin: effectiveAsin
+    });
+    if (seq !== formCoverLookupSeq) return;
+
+    if (gallery.length === 0) {
+      renderFormCoverGallery([], 'Nenhuma capa externa válida encontrada. Você pode colar manualmente uma URL direta de imagem (.jpg/.png).', true);
+      return;
+    }
+
+    if (!coverField || parsed.isAmazonUrl) {
+      document.getElementById('book-cover').value = gallery[0].url;
+      updateCoverPreview(gallery[0].url);
+    }
+
+    renderFormCoverGallery(gallery, `${gallery.length} ${gallery.length === 1 ? 'capa verificada encontrada' : 'capas verificadas encontradas'}. Clique em uma miniatura para aplicar:`);
+  } catch (err) {
+    if (seq === formCoverLookupSeq) {
+      renderFormCoverGallery([], `Falha ao buscar capas: ${err.message}`, true);
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 };
 
 window.updateCoverPreview = function (url) {
   const img = document.getElementById('book-cover-preview');
   const placeholder = document.getElementById('book-cover-placeholder');
-  const clean = safeUrl(url, '');
+  if (!img || !placeholder) return;
+
+  const parsed = parseAmazonInput(url);
+  if (parsed.isAmazonUrl) {
+    img.src = '';
+    img.classList.add('hidden');
+    placeholder.classList.remove('hidden');
+    return;
+  }
+
+  const clean = normalizeCoverCandidateUrl(url);
   if (clean) {
+    img.referrerPolicy = 'no-referrer';
+    img.onload = function () {
+      if (!img.src.startsWith('data:image/') && (img.naturalWidth <= 20 || img.naturalHeight <= 20)) {
+        img.classList.add('hidden');
+        placeholder.classList.remove('hidden');
+      } else {
+        img.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+      }
+    };
+    img.onerror = function () {
+      img.classList.add('hidden');
+      placeholder.classList.remove('hidden');
+    };
     img.src = clean;
     img.classList.remove('hidden');
     placeholder.classList.add('hidden');
   } else {
+    img.onload = null;
+    img.onerror = null;
     img.src = '';
     img.classList.add('hidden');
     placeholder.classList.remove('hidden');
@@ -3061,6 +4715,7 @@ window.toggleBookShelfFields = function () {
 };
 
 window.resetBookForm = function () {
+  formCoverLookupSeq++;
   document.getElementById('book-form').reset();
   document.getElementById('book-id').value = '';
   document.getElementById('book-isbn').value = '';
@@ -3069,6 +4724,7 @@ window.resetBookForm = function () {
   document.getElementById('book-form-heading').textContent = 'Adicionar Livro à Estante';
   document.getElementById('book-form-submit-label').textContent = 'Salvar na Estante';
   document.getElementById('btn-cancel-edit').classList.add('hidden');
+  renderFormCoverGallery([], '');
   updateCoverPreview('');
   toggleBookShelfFields();
 };
@@ -3139,7 +4795,7 @@ function renderAdminCatalog() {
       <div class="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div class="flex items-center gap-3.5 min-w-0">
           <img src="${escapeHtml(coverSrc)}" alt="${escapeHtml(book.title)}"
-            onerror="handleBookCoverError(this, '${escapeHtml(book.title)}', '${escapeHtml(book.author)}')"
+            ${renderBookCoverImgAttrs(book)}
             class="w-12 h-18 aspect-[2/3] rounded-lg object-cover shadow-sm shrink-0 bg-stone-200 dark:bg-stone-800" />
           <div class="min-w-0">
             <h4 class="font-bold text-sm sm:text-base text-stone-900 dark:text-white truncate">${escapeHtml(book.title)}</h4>
@@ -3207,6 +4863,8 @@ window.editBook = function (bookId) {
   document.getElementById('book-form-submit-label').textContent = 'Atualizar Livro';
   document.getElementById('btn-cancel-edit').classList.remove('hidden');
 
+  formCoverLookupSeq++;
+  renderFormCoverGallery([], '');
   updateCoverPreview(book.coverUrl || '');
   toggleBookShelfFields();
   document.getElementById('book-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3318,12 +4976,15 @@ window.handleSaveProfile = async function (event) {
       username,
       accessToken: null,
       refreshToken: null,
-      mode: 'local'
+      mode: isSupabaseConfigured() ? 'supabase' : 'local'
     });
     loadAccountIntoWorkingState(newAccount);
     saveState();
     updateAuthHeaderUI();
     renderAll();
+    if (isSupabaseConfigured()) {
+      void syncAccountsToSupabase([newAccount], []).catch(() => {});
+    }
     showToast(`Novo perfil @${username} criado mantendo @leitoracriativa ativo!`, '🎉');
     return;
   }
@@ -3498,6 +5159,7 @@ window.restoreDemoData = function () {
   }
   updateAuthHeaderUI();
   renderAll();
+  void healAllShelfCoversInBackground();
   showToast('Dados de demonstração restaurados!', '✨');
 };
 
@@ -3515,6 +5177,7 @@ function renderAll() {
 }
 
 async function initApp() {
+  if (!document.getElementById('view-public')) return;
   initTheme();
   authSession = loadAuthSession();
   appState = loadState();
@@ -3540,6 +5203,8 @@ async function initApp() {
   if (isSupabaseConfigured()) {
     await pullFromSupabase({ silent: true, targetUsername: requestedUser || null });
   }
+
+  void healAllShelfCoversInBackground();
 }
 
 window.addEventListener('hashchange', async () => {
