@@ -180,106 +180,39 @@
          ========================================================= -->
     <section id="view-public" class="space-y-8 animate-fade-up">
 
-      <!-- Diretório de Pessoas Cadastradas & Busca Global na Plataforma -->
-      <div id="public-profiles-section" class="rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-sm p-4 sm:p-6 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-2 flex-wrap">
-            <h2 class="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300 flex items-center gap-1.5">
-              <i data-lucide="users" class="w-4 h-4 text-amber-600 dark:text-amber-400"></i>
-              <span>Comunidade &amp; Pessoas Cadastradas</span>
-            </h2>
-            <span id="public-profiles-count" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-paper-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">0 perfis</span>
-          </div>
+      <!-- Barra Rápida da Comunidade no Topo -->
+      <div id="community-top-shortcut-bar" class="rounded-2xl bg-white/95 dark:bg-stone-900/95 border border-stone-200/80 dark:border-stone-800 shadow-sm px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
+        <div class="flex items-center gap-2.5 flex-wrap">
+          <span class="text-xs sm:text-sm font-bold text-stone-700 dark:text-stone-200 flex items-center gap-1.5">
+            <span>🌐</span>
+            <span>Comunidade Na Minha Estante</span>
+          </span>
+          <span id="top-community-count-badge" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-paper-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border border-paper-200 dark:border-stone-700">0 perfis</span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" onclick="scrollToCommunityDirectory()"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 text-xs font-semibold transition">
+            <i data-lucide="users" class="w-3.5 h-3.5 text-amber-600 dark:text-amber-400"></i>
+            <span>Explorar Leitores &amp; Busca Global ↓</span>
+          </button>
+
+          <button type="button" onclick="openFollowingInDirectory()"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 text-xs font-semibold transition">
+            <span>⭐</span>
+            <span>Seguindo (<span id="top-following-count-badge">0</span>)</span>
+          </button>
 
           <button type="button" onclick="openAuthModal('signup')"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 text-xs font-semibold transition">
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-900 hover:bg-stone-800 dark:bg-amber-500 dark:hover:bg-amber-400 text-white dark:text-stone-950 text-xs font-semibold transition">
             <span>➕</span>
             <span>Criar Meu Perfil</span>
           </button>
         </div>
-
-        <!-- Barra de Busca Global (Usuários, Livros, Autores, Clubes e Assuntos) -->
-        <div class="space-y-2.5">
-          <div class="relative">
-            <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-            <input id="platform-search-input" type="text"
-              placeholder="Buscar pessoas (@usuario, nome), livros, autores, clubes ou assuntos..."
-              oninput="handlePlatformSearch(this.value)"
-              onkeydown="if (event.key === 'Enter' && this.value.trim().length >= 2) { event.preventDefault(); searchExternalBooksForPlatform(); }"
-              class="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-stone-50 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition" />
-            <button id="btn-clear-platform-search" type="button" onclick="clearPlatformSearch()"
-              class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
-              aria-label="Limpar busca global">
-              <i data-lucide="x" class="w-4 h-4"></i>
-            </button>
-          </div>
-
-          <!-- Abas de Escopo da Busca -->
-          <div id="platform-search-tabs" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-            <button type="button" data-scope="all" onclick="setPlatformSearchScope('all')"
-              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-900 text-white dark:bg-amber-500 dark:text-stone-950 shadow-sm">
-              🌐 Tudo
-            </button>
-            <button type="button" data-scope="users" onclick="setPlatformSearchScope('users')"
-              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-100/80 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700">
-              👤 Usuários
-            </button>
-            <button type="button" data-scope="books" onclick="setPlatformSearchScope('books')"
-              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-100/80 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700">
-              📚 Livros &amp; Autores
-            </button>
-            <button type="button" data-scope="topics" onclick="setPlatformSearchScope('topics')"
-              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-100/80 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700">
-              🏅 Clubes &amp; Assuntos
-            </button>
-          </div>
-
-          <!-- Chips Rápidos de Assuntos Literários -->
-          <div id="platform-topic-chips" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
-            <button type="button" data-topic="" onclick="applyPlatformTopicChip('')"
-              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-amber-100 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200">
-              ✨ Todos
-            </button>
-            <button type="button" data-topic="Literatura Brasileira" onclick="applyPlatformTopicChip('Literatura Brasileira')"
-              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
-              🇧🇷 Literatura Brasileira
-            </button>
-            <button type="button" data-topic="Suspense" onclick="applyPlatformTopicChip('Suspense')"
-              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
-              🔪 Suspense &amp; Thriller
-            </button>
-            <button type="button" data-topic="Ficção Científica" onclick="applyPlatformTopicChip('Ficção Científica')"
-              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
-              🚀 Ficção Científica
-            </button>
-            <button type="button" data-topic="Leia Mulheres" onclick="applyPlatformTopicChip('Leia Mulheres')"
-              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
-              💜 Leia Mulheres
-            </button>
-            <button type="button" data-topic="Clube Intrínsecos" onclick="applyPlatformTopicChip('Clube Intrínsecos')"
-              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
-              📦 Clube Intrínsecos
-            </button>
-            <button type="button" data-topic="Lendo Agora" onclick="applyPlatformTopicChip('Lendo Agora')"
-              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
-              📖 Lendo Agora
-            </button>
-            <button type="button" data-topic="5 Estrelas" onclick="applyPlatformTopicChip('5 Estrelas')"
-              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
-              ⭐ 5 Estrelas
-            </button>
-          </div>
-        </div>
-
-        <!-- Cards das Pessoas Cadastradas -->
-        <div id="public-profiles-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
-
-        <!-- Resultados Multi-Assunto na Plataforma (Livros, Autores, Clubes & Comentários) -->
-        <div id="platform-search-results" class="hidden pt-4 border-t border-stone-100 dark:border-stone-800 space-y-5"></div>
       </div>
 
-      <!-- Cabeçalho do Perfil -->
-      <div id="active-profile-card" class="relative overflow-hidden rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-soft p-6 sm:p-8">
+      <!-- Cabeçalho do Perfil em Destaque -->
+      <div id="active-profile-card" class="scroll-mt-24 relative overflow-hidden rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-soft p-6 sm:p-8 transition-all duration-500">
         <div class="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-amber-100/70 via-transparent to-transparent dark:from-amber-900/20 pointer-events-none"></div>
 
         <div class="relative flex flex-col sm:flex-row items-center sm:items-start gap-6">
@@ -301,8 +234,33 @@
 
             <p id="profile-bio" class="text-sm sm:text-base text-stone-600 dark:text-stone-300 max-w-2xl leading-relaxed"></p>
 
+            <!-- Estatísticas Sociais do Perfil -->
+            <div id="profile-social-stats" class="flex flex-wrap items-center justify-center sm:justify-start gap-2 text-xs text-stone-600 dark:text-stone-300">
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 font-semibold">
+                <span>👥</span>
+                <strong id="profile-followers-count" class="text-stone-900 dark:text-white">0</strong>
+                <span id="profile-followers-label">seguidores</span>
+              </span>
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 font-semibold">
+                <span>⭐</span>
+                <strong id="profile-following-count" class="text-stone-900 dark:text-white">0</strong>
+                <span>seguindo</span>
+              </span>
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 font-semibold">
+                <span>📚</span>
+                <strong id="profile-books-total-count" class="text-stone-900 dark:text-white">0</strong>
+                <span id="profile-books-total-label">livros</span>
+              </span>
+            </div>
+
             <!-- Botões do Perfil -->
             <div class="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 pt-1">
+              <button id="btn-follow-active-profile" type="button" onclick="toggleFollowUser(getCleanUsername(), event)"
+                class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs sm:text-sm font-bold shadow-sm transition">
+                <span>➕</span>
+                <span>Seguir Estante</span>
+              </button>
+
               <a id="profile-instagram-link" href="#" target="_blank" rel="noopener noreferrer"
                 class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500 via-pink-600 to-amber-500 hover:opacity-95 text-white text-xs sm:text-sm font-semibold shadow-sm transition">
                 <i data-lucide="instagram" class="w-4 h-4"></i>
@@ -412,6 +370,108 @@
           class="mt-4 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition">
           Ver toda a estante
         </button>
+      </div>
+
+      <!-- Diretório de Pessoas Cadastradas & Busca Global na Plataforma -->
+      <div id="public-profiles-section" class="scroll-mt-24 rounded-3xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-sm p-4 sm:p-6 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h2 class="text-xs sm:text-sm font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300 flex items-center gap-1.5">
+              <i data-lucide="users" class="w-4 h-4 text-amber-600 dark:text-amber-400"></i>
+              <span>Comunidade &amp; Pessoas Cadastradas</span>
+            </h2>
+            <span id="public-profiles-count" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-paper-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">0 perfis</span>
+          </div>
+
+          <button type="button" onclick="openAuthModal('signup')"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 text-xs font-semibold transition">
+            <span>➕</span>
+            <span>Criar Meu Perfil</span>
+          </button>
+        </div>
+
+        <!-- Barra de Busca Global (Usuários, Livros, Autores, Clubes e Assuntos) -->
+        <div class="space-y-2.5">
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            <input id="platform-search-input" type="text"
+              placeholder="Buscar pessoas (@usuario, nome), livros, autores, clubes ou assuntos..."
+              oninput="handlePlatformSearch(this.value)"
+              onkeydown="if (event.key === 'Enter' && this.value.trim().length >= 2) { event.preventDefault(); searchExternalBooksForPlatform(); }"
+              class="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-stone-50 dark:bg-stone-800/80 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 transition" />
+            <button id="btn-clear-platform-search" type="button" onclick="clearPlatformSearch()"
+              class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 dark:hover:text-stone-200"
+              aria-label="Limpar busca global">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Abas de Escopo da Busca -->
+          <div id="platform-search-tabs" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+            <button type="button" data-scope="all" onclick="setPlatformSearchScope('all')"
+              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-900 text-white dark:bg-amber-500 dark:text-stone-950 shadow-sm">
+              🌐 Tudo
+            </button>
+            <button type="button" data-scope="following" onclick="setPlatformSearchScope('following')"
+              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-100/80 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700">
+              ⭐ Seguindo (<span id="platform-following-tab-count">0</span>)
+            </button>
+            <button type="button" data-scope="users" onclick="setPlatformSearchScope('users')"
+              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-100/80 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700">
+              👤 Usuários
+            </button>
+            <button type="button" data-scope="books" onclick="setPlatformSearchScope('books')"
+              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-100/80 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700">
+              📚 Livros &amp; Autores
+            </button>
+            <button type="button" data-scope="topics" onclick="setPlatformSearchScope('topics')"
+              class="platform-scope-tab shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition bg-stone-100/80 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-200 dark:hover:bg-stone-700">
+              🏅 Clubes &amp; Assuntos
+            </button>
+          </div>
+
+          <!-- Chips Rápidos de Assuntos Literários -->
+          <div id="platform-topic-chips" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5">
+            <button type="button" data-topic="" onclick="applyPlatformTopicChip('')"
+              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-amber-100 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200">
+              ✨ Todos
+            </button>
+            <button type="button" data-topic="Literatura Brasileira" onclick="applyPlatformTopicChip('Literatura Brasileira')"
+              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
+              🇧🇷 Literatura Brasileira
+            </button>
+            <button type="button" data-topic="Suspense" onclick="applyPlatformTopicChip('Suspense')"
+              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
+              🔪 Suspense &amp; Thriller
+            </button>
+            <button type="button" data-topic="Ficção Científica" onclick="applyPlatformTopicChip('Ficção Científica')"
+              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
+              🚀 Ficção Científica
+            </button>
+            <button type="button" data-topic="Leia Mulheres" onclick="applyPlatformTopicChip('Leia Mulheres')"
+              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
+              💜 Leia Mulheres
+            </button>
+            <button type="button" data-topic="Clube Intrínsecos" onclick="applyPlatformTopicChip('Clube Intrínsecos')"
+              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
+              📦 Clube Intrínsecos
+            </button>
+            <button type="button" data-topic="Lendo Agora" onclick="applyPlatformTopicChip('Lendo Agora')"
+              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
+              📖 Lendo Agora
+            </button>
+            <button type="button" data-topic="5 Estrelas" onclick="applyPlatformTopicChip('5 Estrelas')"
+              class="platform-topic-chip shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition bg-paper-100 dark:bg-stone-800 border-paper-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-amber-50 dark:hover:bg-stone-700">
+              ⭐ 5 Estrelas
+            </button>
+          </div>
+        </div>
+
+        <!-- Cards das Pessoas Cadastradas -->
+        <div id="public-profiles-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+
+        <!-- Resultados Multi-Assunto na Plataforma (Livros, Autores, Clubes & Comentários) -->
+        <div id="platform-search-results" class="hidden pt-4 border-t border-stone-100 dark:border-stone-800 space-y-5"></div>
       </div>
 
       <!-- Rodapé discreto de transparência de afiliados -->
@@ -697,10 +757,25 @@
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label for="cfg-avatar" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">URL da Foto de Perfil</label>
-              <input id="cfg-avatar" type="url" placeholder="https://..."
-                class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+            <div class="space-y-2">
+              <label for="cfg-avatar" class="block text-xs font-semibold text-stone-600 dark:text-stone-300">Foto de Perfil (Upload ou URL)</label>
+              <div class="flex items-center gap-3">
+                <img id="cfg-avatar-preview" src="" alt="Preview da foto de perfil"
+                  class="w-12 h-12 rounded-full object-cover ring-2 ring-paper-200 dark:ring-stone-700 bg-stone-200 dark:bg-stone-800 shrink-0" />
+                <div class="flex-1 min-w-0 space-y-1.5">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <label for="cfg-avatar-file"
+                      class="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/60 text-xs font-semibold transition">
+                      <span>📷</span>
+                      <span>Escolher Foto do Aparelho</span>
+                    </label>
+                    <input id="cfg-avatar-file" type="file" accept="image/*" class="hidden" onchange="handleAvatarFileUpload(event)" />
+                  </div>
+                  <input id="cfg-avatar" type="text" placeholder="Ou cole uma URL https://..."
+                    oninput="updateProfileAvatarPreview(this.value)"
+                    class="w-full px-3.5 py-2 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+                </div>
+              </div>
             </div>
             <div>
               <label for="cfg-instagram" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Link do Instagram</label>
@@ -867,13 +942,19 @@
 
             <div id="modal-book-meta" class="flex flex-wrap items-center justify-center sm:justify-start gap-2"></div>
 
-            <div class="pt-1">
+            <div class="pt-1 flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
               <a id="modal-book-amazon-btn" href="#" target="_blank" rel="noopener noreferrer"
                 class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-sm shadow-sm transition w-full sm:w-auto">
                 <i data-lucide="shopping-bag" class="w-4 h-4"></i>
                 <span>Comprar na Amazon</span>
                 <i data-lucide="external-link" class="w-3.5 h-3.5 opacity-75"></i>
               </a>
+
+              <button id="modal-book-copy-btn" type="button" onclick="copyModalBookToMyShelf()"
+                class="hidden inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-amber-100 dark:bg-stone-800 dark:hover:bg-amber-950/60 text-stone-800 dark:text-stone-100 border border-stone-200 dark:border-stone-700 font-semibold text-sm transition w-full sm:w-auto">
+                <span>➕</span>
+                <span>Quero Ler na Minha Estante</span>
+              </button>
             </div>
           </div>
         </div>
@@ -970,7 +1051,7 @@
   <div id="qr-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-stone-950/70 backdrop-blur-sm" onclick="handleBackdropClick(event, 'qr-modal')">
     <div class="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-3xl shadow-2xl max-w-md w-full p-6 text-center space-y-5 animate-fade-up">
       <div class="flex items-center justify-between">
-        <h2 class="font-serif text-xl font-bold">Compartilhar Minha Estante</h2>
+        <h2 id="qr-modal-title" class="font-serif text-xl font-bold">Compartilhar Minha Estante</h2>
         <button type="button" onclick="closeQrModal()" class="p-2 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-500 transition">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>

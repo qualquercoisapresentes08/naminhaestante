@@ -138,6 +138,11 @@ create policy "Public insert comments"
   on public.comments for insert
   with check (true);
 
+drop policy if exists "Public delete comments" on public.comments;
+create policy "Public delete comments"
+  on public.comments for delete
+  using (true);
+
 drop policy if exists "Community insert profile_settings" on public.profile_settings;
 create policy "Community insert profile_settings"
   on public.profile_settings for insert

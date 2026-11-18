@@ -9,8 +9,11 @@ const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_mLzmCf4JY9TlpJTuJG5TBA_AALiuuk
 const STORAGE_KEY = 'nme_state_v1';
 const AUTH_KEY = 'nme_auth_v1';
 const VISITOR_KEY = 'nme_visitor_v1';
+const VISITOR_FOLLOWING_KEY = 'nme_visitor_following_v1';
+const VISITOR_COMMENTS_KEY = 'nme_visitor_comments_v1';
 const THEME_KEY = 'nme_theme_v1';
 const DEMO_USER_ID = 'demo_leitoracriativa';
+const DEMO_PASSWORD_HASH = '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92';
 
 const SUPABASE_SCHEMA_SQL = `-- ==========================================================================
 -- NA MINHA ESTANTE - SCHEMA MULTI-USUÁRIO & COMUNIDADE GLOBAL (SUPABASE)
@@ -152,6 +155,11 @@ create policy "Public insert comments"
   on public.comments for insert
   with check (true);
 
+drop policy if exists "Public delete comments" on public.comments;
+create policy "Public delete comments"
+  on public.comments for delete
+  using (true);
+
 drop policy if exists "Community insert profile_settings" on public.profile_settings;
 create policy "Community insert profile_settings"
   on public.profile_settings for insert
@@ -207,6 +215,7 @@ let pendingBookToImport = null;
 let lastFormCoverGallery = [];
 let pendingAdminAfterAuth = false;
 let toastTimeout = null;
+let profileHighlightTimeout = null;
 
 const verifiedCoverCache = new Map();
 const goodreadsCoverCache = new Map();
@@ -236,13 +245,15 @@ function createDemoAccount() {
   return {
     userId: DEMO_USER_ID,
     email: 'demo@naminhaestante.app',
-    password: '123456',
+    password: '',
+    passwordHash: DEMO_PASSWORD_HASH,
     profile: {
       name: 'Clara Mendes',
       username: 'leitoracriativa',
       bio: 'Criadora literária & apaixonada por ficção contemporânea, thrillers psicológicos e literatura brasileira. Todos os meus livros e indicações em um só lugar.',
       avatarUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=300&q=80',
-      instagramUrl: 'https://instagram.com/leitoracriativa'
+      instagramUrl: 'https://instagram.com/leitoracriativa',
+      following: ['marileituras', 'biaentrepaginas']
     },
     clubs: [
       { id: 'club_1', emoji: '📦', name: 'Clube Intrínsecos', meta: 'Assinatura Mensal' },
@@ -338,13 +349,15 @@ function createDefaultCommunityAccounts() {
   const marianaAccount = {
     userId: 'demo_marileituras',
     email: 'mariana@naminhaestante.app',
-    password: '123456',
+    password: '',
+    passwordHash: DEMO_PASSWORD_HASH,
     profile: {
       name: 'Mariana Costa',
       username: 'marileituras',
       bio: 'Apaixonada por literatura brasileira, poesia e clubes de leitura coletivos. Sempre com um livro nacional na bolsa.',
       avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
-      instagramUrl: 'https://instagram.com/marileituras'
+      instagramUrl: 'https://instagram.com/marileituras',
+      following: ['leitoracriativa', 'lucas.books']
     },
     clubs: [
       { id: 'club_mari_1', emoji: '💜', name: 'Leia Mulheres', meta: 'Encontro Coletivo' },
@@ -396,13 +409,15 @@ function createDefaultCommunityAccounts() {
   const lucasAccount = {
     userId: 'demo_lucasbooks',
     email: 'lucas@naminhaestante.app',
-    password: '123456',
+    password: '',
+    passwordHash: DEMO_PASSWORD_HASH,
     profile: {
       name: 'Lucas Almeida',
       username: 'lucas.books',
       bio: 'Leitor voraz de ficção científica, fantasia épica e não-ficção. Resenhas diretas ao ponto e indicações semanais.',
       avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
-      instagramUrl: 'https://instagram.com/lucas.books'
+      instagramUrl: 'https://instagram.com/lucas.books',
+      following: ['leitoracriativa', 'marileituras']
     },
     clubs: [
       { id: 'club_lucas_1', emoji: '🚀', name: 'Sci-Fi Brasil', meta: 'Ficção Científica' },
@@ -454,13 +469,15 @@ function createDefaultCommunityAccounts() {
   const beatrizAccount = {
     userId: 'demo_biaentrepaginas',
     email: 'bia@naminhaestante.app',
-    password: '123456',
+    password: '',
+    passwordHash: DEMO_PASSWORD_HASH,
     profile: {
       name: 'Beatriz Souza',
       username: 'biaentrepaginas',
       bio: 'Curadora de romances históricos, suspense policial e thrillers psicológicos de tirar o fôlego.',
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
-      instagramUrl: 'https://instagram.com/biaentrepaginas'
+      instagramUrl: 'https://instagram.com/biaentrepaginas',
+      following: ['leitoracriativa', 'marileituras']
     },
     clubs: [
       { id: 'club_bia_1', emoji: '🔪', name: 'Clube do Thriller', meta: 'Suspense & Mistério' },
@@ -599,6 +616,83 @@ function generateId(prefix = 'id') {
     return `${prefix}_${window.crypto.randomUUID()}`;
   }
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sha256HexFallback(inputStr) {
+  const bytes = new TextEncoder().encode(String(inputStr ?? ''));
+  const words = [];
+  for (let i = 0; i < bytes.length; i++) {
+    words[i >> 2] = (words[i >> 2] || 0) | (bytes[i] << (24 - (i % 4) * 8));
+  }
+  const bitLen = bytes.length * 8;
+  words[bitLen >> 5] = (words[bitLen >> 5] || 0) | (0x80 << (24 - (bitLen % 32)));
+  words[(((bitLen + 64) >> 9) << 4) + 15] = bitLen;
+
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+  let H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const rotr = (n, x) => (x >>> n) | (x << (32 - n));
+  const w = new Array(64);
+
+  for (let i = 0; i < words.length; i += 16) {
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let j = 0; j < 64; j++) {
+      if (j < 16) {
+        w[j] = words[i + j] | 0;
+      } else {
+        const s0 = rotr(7, w[j - 15]) ^ rotr(18, w[j - 15]) ^ (w[j - 15] >>> 3);
+        const s1 = rotr(17, w[j - 2]) ^ rotr(19, w[j - 2]) ^ (w[j - 2] >>> 10);
+        w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
+      }
+      const S1 = rotr(6, e) ^ rotr(11, e) ^ rotr(25, e);
+      const ch = (e & f) ^ ((~e) & g);
+      const temp1 = (h + S1 + ch + K[j] + w[j]) | 0;
+      const S0 = rotr(2, a) ^ rotr(13, a) ^ rotr(22, a);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (S0 + maj) | 0;
+      h = g; g = f; f = e; e = (d + temp1) | 0;
+      d = c; c = b; b = a; a = (temp1 + temp2) | 0;
+    }
+    H = [
+      (H[0] + a) | 0, (H[1] + b) | 0, (H[2] + c) | 0, (H[3] + d) | 0,
+      (H[4] + e) | 0, (H[5] + f) | 0, (H[6] + g) | 0, (H[7] + h) | 0
+    ];
+  }
+  return H.map((x) => (x >>> 0).toString(16).padStart(8, '0')).join('');
+}
+
+async function hashPasswordSha256(plainText) {
+  const value = String(plainText ?? '');
+  if (window.crypto && window.crypto.subtle && typeof window.TextEncoder === 'function') {
+    try {
+      const encoded = new TextEncoder().encode(value);
+      const digest = await window.crypto.subtle.digest('SHA-256', encoded);
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    } catch (_) {}
+  }
+  return sha256HexFallback(value);
+}
+
+async function verifyAccountPassword(plainPassword, localAcc = null, remoteMeta = null) {
+  const inputHash = await hashPasswordSha256(plainPassword);
+  const storedHash = String(remoteMeta?.passwordHash || localAcc?.passwordHash || '').trim();
+  if (storedHash) {
+    return inputHash === storedHash;
+  }
+  if (localAcc && localAcc.password) {
+    return localAcc.password === plainPassword;
+  }
+  return false;
 }
 
 function buildFallbackCoverDataUri(title, author) {
@@ -1350,12 +1444,22 @@ function normalizeUsername(raw) {
 
 function sanitizeProfile(profile = {}, fallback = {}) {
   const username = normalizeUsername(profile.username || fallback.username || 'oseunome') || 'oseunome';
+  const rawFollowing = Array.isArray(profile.following)
+    ? profile.following
+    : (Array.isArray(fallback.following) ? fallback.following : []);
+  const following = [...new Set(
+    rawFollowing
+      .map((u) => normalizeUsername(u))
+      .filter((u) => u && u !== username)
+  )];
+
   return {
     name: String(profile.name ?? fallback.name ?? 'Leitor(a)').trim() || 'Leitor(a)',
     username,
     bio: String(profile.bio ?? fallback.bio ?? ''),
     avatarUrl: String(profile.avatarUrl ?? fallback.avatarUrl ?? ''),
-    instagramUrl: String(profile.instagramUrl ?? fallback.instagramUrl ?? '')
+    instagramUrl: String(profile.instagramUrl ?? fallback.instagramUrl ?? ''),
+    following
   };
 }
 
@@ -1474,8 +1578,12 @@ function findLocalAccountByIdentifier(identifier) {
 function loadAccountIntoWorkingState(account) {
   if (!account) return;
   const profile = sanitizeProfile(account.profile);
+  const unpacked = unpackClubsAndAccountMeta(account.clubs || []);
+  if (unpacked.following.length > 0 && profile.following.length === 0) {
+    profile.following = unpacked.following;
+  }
   appState.profile = { ...profile };
-  appState.clubs = Array.isArray(account.clubs) ? account.clubs.map((c) => ({ ...c })) : [];
+  appState.clubs = unpacked.clubs.map((c) => ({ ...c }));
   appState.books = Array.isArray(account.books) ? account.books.map((b) => sanitizeBook(b)) : [];
   appState.activePublicUsername = profile.username;
 }
@@ -1484,16 +1592,24 @@ function commitWorkingStateToOwnerAccount() {
   if (!authSession || !appState) return;
   if (!Array.isArray(appState.accounts)) appState.accounts = [];
 
-  const cleanProfile = sanitizeProfile(appState.profile, { username: authSession.username });
+  let account = findLocalAccountById(authSession.userId);
+  const existingFollowing = account?.profile?.following || [];
+  const mergedProfileInput = {
+    ...appState.profile,
+    following: Array.isArray(appState.profile?.following) && appState.profile.following.length > 0
+      ? appState.profile.following
+      : existingFollowing
+  };
+  const cleanProfile = sanitizeProfile(mergedProfileInput, { username: authSession.username });
   appState.profile = cleanProfile;
   appState.activePublicUsername = cleanProfile.username;
 
-  let account = findLocalAccountById(authSession.userId);
   if (!account) {
     account = {
       userId: authSession.userId,
       email: authSession.email || '',
       password: '',
+      passwordHash: '',
       profile: { ...cleanProfile },
       clubs: [],
       books: []
@@ -1502,7 +1618,7 @@ function commitWorkingStateToOwnerAccount() {
   }
 
   account.profile = { ...cleanProfile };
-  account.clubs = (appState.clubs || []).map((c) => ({ ...c }));
+  account.clubs = (appState.clubs || []).filter((c) => c && !c._meta).map((c) => ({ ...c }));
   account.books = (appState.books || []).map((b) => sanitizeBook(b));
   saveState();
 }
@@ -1516,21 +1632,27 @@ function loadState() {
 
       let accounts = [];
       if (Array.isArray(parsed.accounts) && parsed.accounts.length > 0) {
-        accounts = parsed.accounts.map((acc) => ({
-          userId: acc.userId || generateId('usr'),
-          email: acc.email || '',
-          password: acc.password || '',
-          profile: sanitizeProfile(acc.profile),
-          clubs: Array.isArray(acc.clubs) ? acc.clubs : [],
-          books: Array.isArray(acc.books) ? acc.books.map(sanitizeBook) : []
-        }));
+        accounts = parsed.accounts.map((acc) => {
+          const unpacked = unpackClubsAndAccountMeta(acc.clubs || []);
+          const prof = sanitizeProfile(acc.profile, { following: unpacked.following });
+          return {
+            userId: acc.userId || generateId('usr'),
+            email: acc.email || '',
+            password: acc.passwordHash ? '' : (acc.password || ''),
+            passwordHash: acc.passwordHash || unpacked.passwordHash || '',
+            profile: prof,
+            clubs: unpacked.clubs,
+            books: Array.isArray(acc.books) ? acc.books.map(sanitizeBook) : []
+          };
+        });
       } else {
         // Migração automática do estado MVP v1 para estrutura multi-usuário
         const migratedProfile = sanitizeProfile(parsed.profile, seed.profile);
         accounts = [{
           userId: DEMO_USER_ID,
           email: 'demo@naminhaestante.app',
-          password: '123456',
+          password: '',
+          passwordHash: DEMO_PASSWORD_HASH,
           profile: migratedProfile,
           clubs: Array.isArray(parsed.clubs) ? parsed.clubs : seed.clubs,
           books: Array.isArray(parsed.books) ? parsed.books.map(sanitizeBook) : seed.books
@@ -1640,8 +1762,9 @@ async function supabaseFetch(path, options = {}, retryOn401 = true) {
     throw new Error('Supabase não configurado.');
   }
 
-  const useUserToken = options.useUserToken !== false && authSession?.mode === 'supabase' && authSession?.accessToken;
-  const bearerToken = useUserToken ? authSession.accessToken : (anonKey.startsWith('eyJ') ? anonKey : '');
+  const explicitToken = options.explicitToken || '';
+  const useUserToken = !explicitToken && options.useUserToken !== false && authSession?.mode === 'supabase' && authSession?.accessToken;
+  const bearerToken = explicitToken || (useUserToken ? authSession.accessToken : (anonKey.startsWith('eyJ') ? anonKey : ''));
 
   const headers = {
     apikey: anonKey,
@@ -1652,6 +1775,7 @@ async function supabaseFetch(path, options = {}, retryOn401 = true) {
 
   const fetchOpts = { ...options };
   delete fetchOpts.useUserToken;
+  delete fetchOpts.explicitToken;
 
   const response = await fetch(`${baseUrl}/rest/v1/${path}`, {
     ...fetchOpts,
@@ -1678,7 +1802,43 @@ async function supabaseFetch(path, options = {}, retryOn401 = true) {
   return text ? JSON.parse(text) : null;
 }
 
-function toDbProfile(profile, clubs, userId, email = '') {
+function packClubsWithAccountMeta(clubs = [], profile = {}, passwordHash = '') {
+  const cleanClubs = (Array.isArray(clubs) ? clubs : []).filter((c) => c && !c._meta);
+  const following = Array.isArray(profile?.following)
+    ? [...new Set(profile.following.map(normalizeUsername).filter(Boolean))]
+    : [];
+  const meta = {
+    _meta: 'nme_account_meta',
+    following,
+    ...(passwordHash ? { passwordHash } : {})
+  };
+  return [...cleanClubs, meta];
+}
+
+function unpackClubsAndAccountMeta(rawClubs = []) {
+  const list = Array.isArray(rawClubs) ? rawClubs : [];
+  const clubs = [];
+  let following = [];
+  let passwordHash = '';
+
+  for (const item of list) {
+    if (item && item._meta === 'nme_account_meta') {
+      if (Array.isArray(item.following)) {
+        following = [...new Set(item.following.map((u) => normalizeUsername(u)).filter(Boolean))];
+      }
+      if (item.passwordHash) {
+        passwordHash = String(item.passwordHash);
+      }
+    } else if (item && item.name) {
+      clubs.push(item);
+    }
+  }
+
+  return { clubs, following, passwordHash };
+}
+
+function toDbProfile(profile, clubs, userId, email = '', passwordHash = '') {
+  const resolvedHash = passwordHash || findLocalAccountById(userId)?.passwordHash || '';
   return {
     id: userId,
     email: String(email || '').trim().toLowerCase(),
@@ -1687,7 +1847,7 @@ function toDbProfile(profile, clubs, userId, email = '') {
     bio: profile.bio || '',
     avatar_url: profile.avatarUrl || '',
     instagram_url: profile.instagramUrl || '',
-    clubs: clubs || [],
+    clubs: packClubsWithAccountMeta(clubs, profile, resolvedHash),
     updated_at: new Date().toISOString()
   };
 }
@@ -1754,8 +1914,30 @@ function canWriteToSupabaseOwnerData() {
   return isSupabaseConfigured() && Boolean(authSession?.userId);
 }
 
+async function syncSpecificProfileInBackground(account) {
+  if (!isSupabaseConfigured() || !account || !account.userId || !account.profile) return;
+  try {
+    const isCurrentOwner = Boolean(authSession?.userId && authSession.userId === account.userId);
+    await supabaseFetch('profile_settings', {
+      method: 'POST',
+      useUserToken: isCurrentOwner,
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify(
+        toDbProfile(account.profile, account.clubs || [], account.userId, account.email || '', account.passwordHash || '')
+      )
+    });
+  } catch (err) {
+    console.warn('Falha ao sincronizar perfil no Supabase:', err);
+  }
+}
+
 async function syncProfileInBackground() {
   if (!canWriteToSupabaseOwnerData()) return;
+  const ownAcc = findLocalAccountById(authSession.userId);
+  if (ownAcc) {
+    await syncSpecificProfileInBackground(ownAcc);
+    return;
+  }
   try {
     await supabaseFetch('profile_settings', {
       method: 'POST',
@@ -1767,23 +1949,30 @@ async function syncProfileInBackground() {
   }
 }
 
-async function syncBookInBackground(book) {
-  if (!canWriteToSupabaseOwnerData()) return;
+async function syncBookInBackground(book, ownerUserId = authSession?.userId) {
+  if (!isSupabaseConfigured() || !ownerUserId) return;
   try {
     await supabaseFetch('books', {
       method: 'POST',
+      useUserToken: ownerUserId === authSession?.userId,
       headers: { Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify(toDbBook(book, authSession.userId))
+      body: JSON.stringify(toDbBook(book, ownerUserId))
     });
   } catch (err) {
     // Se o perfil ainda não existir em profile_settings, cria o perfil e reenvia o livro
     if (String(err?.message || '').includes('23503') || String(err?.message || '').toLowerCase().includes('foreign key')) {
       try {
-        await syncProfileInBackground();
+        const ownerAcc = findLocalAccountById(ownerUserId);
+        if (ownerAcc) {
+          await syncSpecificProfileInBackground(ownerAcc);
+        } else {
+          await syncProfileInBackground();
+        }
         await supabaseFetch('books', {
           method: 'POST',
+          useUserToken: ownerUserId === authSession?.userId,
           headers: { Prefer: 'resolution=merge-duplicates' },
-          body: JSON.stringify(toDbBook(book, authSession.userId))
+          body: JSON.stringify(toDbBook(book, ownerUserId))
         });
         return;
       } catch (retryErr) {
@@ -1819,6 +2008,17 @@ async function syncCommentInBackground(comment) {
   }
 }
 
+async function deleteCommentInBackground(commentId) {
+  if (!isSupabaseConfigured() || !commentId) return;
+  try {
+    await supabaseFetch(`comments?id=eq.${encodeURIComponent(commentId)}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    console.warn('Falha ao excluir comentário no Supabase:', err);
+  }
+}
+
 async function syncAccountsToSupabase(accountsList = [], commentsList = []) {
   if (!isSupabaseConfigured()) return;
 
@@ -1834,7 +2034,7 @@ async function syncAccountsToSupabase(accountsList = [], commentsList = []) {
     seenProfileIds.add(acc.userId);
     seenUsernames.add(slug);
 
-    profileRows.push(toDbProfile(acc.profile, acc.clubs || [], acc.userId, acc.email || ''));
+    profileRows.push(toDbProfile(acc.profile, acc.clubs || [], acc.userId, acc.email || '', acc.passwordHash || ''));
     for (const book of (acc.books || [])) {
       bookRows.push(toDbBook(sanitizeBook(book), acc.userId));
     }
@@ -1902,23 +2102,28 @@ window.syncAllToSupabase = async function () {
     return;
   }
 
+  if (!authSession?.userId) {
+    openAuthModal('login');
+    showToast('Entre na sua conta para sincronizar sua estante com segurança.', '🔐');
+    return;
+  }
+
   try {
-    if (authSession?.userId) {
+    if (normalizeUsername(appState.profile?.username) === normalizeUsername(authSession.username)) {
       commitWorkingStateToOwnerAccount();
     }
 
-    const accountsToSync = Array.isArray(appState.accounts) && appState.accounts.length > 0
-      ? appState.accounts
-      : [{
-          userId: authSession?.userId || generateId('usr'),
-          email: authSession?.email || '',
-          profile: appState.profile,
-          clubs: appState.clubs || [],
-          books: appState.books || []
-        }];
+    const ownAccount = findLocalAccountById(authSession.userId);
+    if (!ownAccount) {
+      showToast('Conta autenticada não encontrada localmente para sincronizar.', '⚠️');
+      return;
+    }
 
-    await syncAccountsToSupabase(accountsToSync, appState.comments || []);
-    showToast(`Comunidade sincronizada! ${accountsToSync.length} perfil(is) enviados para o Supabase.`, '☁️');
+    const ownBookIds = new Set((ownAccount.books || []).map((b) => b.id));
+    const ownComments = (appState.comments || []).filter((c) => ownBookIds.has(c.bookId));
+
+    await syncAccountsToSupabase([ownAccount], ownComments);
+    showToast(`Sua estante @${ownAccount.profile.username} foi sincronizada com segurança!`, '☁️');
   } catch (err) {
     showToast(`Erro ao enviar para o Supabase: ${err.message}`, '❌');
   }
@@ -1946,19 +2151,23 @@ window.pullFromSupabase = async function ({ silent = false, targetUsername = nul
 
     if (Array.isArray(profiles) && profiles.length > 0) {
       const dbAccounts = profiles.map((p) => {
+        const unpacked = unpackClubsAndAccountMeta(p.clubs);
+        const existingLocal = findLocalAccountById(p.id);
         const userBooks = booksRows.filter((b) => b.user_id === p.id).map(fromDbBook);
         return {
           userId: p.id,
           email: p.email || '',
           password: '',
+          passwordHash: unpacked.passwordHash || existingLocal?.passwordHash || '',
           profile: sanitizeProfile({
             name: p.name,
             username: p.username,
             bio: p.bio,
             avatarUrl: p.avatar_url,
-            instagramUrl: p.instagram_url
+            instagramUrl: p.instagram_url,
+            following: unpacked.following
           }),
-          clubs: Array.isArray(p.clubs) ? p.clubs : [],
+          clubs: unpacked.clubs,
           books: userBooks
         };
       });
@@ -1966,21 +2175,22 @@ window.pullFromSupabase = async function ({ silent = false, targetUsername = nul
       const dbIds = new Set(dbAccounts.map((a) => a.userId));
       const dbUsernames = new Set(dbAccounts.map((a) => normalizeUsername(a.profile.username)));
 
-      // Preserva e envia para o Supabase contas locais personalizadas criadas antes da conexão
-      const localOnlyCustomAccounts = (appState.accounts || []).filter((acc) => {
+      // Sincroniza automaticamente apenas se for a própria conta logada criada localmente e ainda ausente no banco
+      const localOnlyOwnAccounts = (appState.accounts || []).filter((acc) => {
         const isDemo = String(acc.userId || '').startsWith('demo_');
         const slug = normalizeUsername(acc.profile?.username);
-        return !isDemo && acc.userId && !dbIds.has(acc.userId) && slug && !dbUsernames.has(slug);
+        const belongsToSession = Boolean(authSession?.userId && acc.userId === authSession.userId);
+        return !isDemo && belongsToSession && acc.userId && !dbIds.has(acc.userId) && slug && !dbUsernames.has(slug);
       });
 
-      if (localOnlyCustomAccounts.length > 0) {
-        void syncAccountsToSupabase(localOnlyCustomAccounts, appState.comments || []).catch((err) => {
-          console.warn('Falha ao enviar contas locais personalizadas para o Supabase:', err);
+      if (localOnlyOwnAccounts.length > 0) {
+        void syncAccountsToSupabase(localOnlyOwnAccounts, appState.comments || []).catch((err) => {
+          console.warn('Falha ao enviar sua conta local para o Supabase:', err);
         });
       }
 
       // Mantém os perfis padrão da comunidade disponíveis na listagem caso não estejam no banco
-      const mergedAccounts = mergeDefaultCommunityAccounts([...dbAccounts, ...localOnlyCustomAccounts]);
+      const mergedAccounts = mergeDefaultCommunityAccounts([...dbAccounts, ...localOnlyOwnAccounts]);
 
       appState.accounts = mergedAccounts;
 
@@ -2123,7 +2333,7 @@ window.updateSignupUsernamePreview = function (raw) {
   if (el) el.textContent = `?u=${slug}`;
 };
 
-window.switchLocalAccount = function (userId) {
+window.switchLocalAccount = async function (userId) {
   const acc = findLocalAccountById(userId);
   if (!acc) return;
 
@@ -2137,6 +2347,7 @@ window.switchLocalAccount = function (userId) {
   });
   loadAccountIntoWorkingState(acc);
   saveState();
+  await applyPendingBookCopyAfterAuth();
   closeAuthModal();
   updateAuthHeaderUI();
   renderAll();
@@ -2187,6 +2398,7 @@ window.handleAuthLogin = async function (event) {
       } catch (_) {}
 
       const remoteProfile = remoteProfiles[0] || null;
+      const remoteMeta = remoteProfile ? unpackClubsAndAccountMeta(remoteProfile.clubs) : null;
       const resolvedEmail = isEmailLogin
         ? identifier.toLowerCase()
         : (remoteProfile?.email || localAcc?.email || '');
@@ -2209,23 +2421,15 @@ window.handleAuthLogin = async function (event) {
             userMeta = authData.user.user_metadata || {};
           }
         } catch (authErr) {
-          const msg = String(authErr?.message || '').toLowerCase();
-          const emailUnconfirmed = msg.includes('not confirmed');
-          const matchesLocal = Boolean(localAcc && (!localAcc.password || localAcc.password === password));
-          if (matchesLocal) {
-            userId = localAcc.userId;
-          } else if (emailUnconfirmed && remoteProfile) {
-            userId = remoteProfile.id;
+          const passwordMatches = await verifyAccountPassword(password, localAcc, remoteMeta);
+          if (passwordMatches && (remoteProfile || localAcc)) {
+            userId = remoteProfile?.id || localAcc?.userId || '';
           } else {
             throw authErr;
           }
         }
-      } else if (localAcc && (!localAcc.password || localAcc.password === password)) {
-        userId = localAcc.userId;
-      }
-
-      if (!userId && remoteProfile && localAcc && (!localAcc.password || localAcc.password === password)) {
-        userId = remoteProfile.id || localAcc.userId;
+      } else if (await verifyAccountPassword(password, localAcc, remoteMeta)) {
+        userId = remoteProfile?.id || localAcc?.userId || '';
       }
 
       if (!userId) {
@@ -2237,12 +2441,15 @@ window.handleAuthLogin = async function (event) {
       if (!profileRow) {
         const byId = await supabaseFetch(
           `profile_settings?id=eq.${encodeURIComponent(userId)}&select=*`,
-          { useUserToken: Boolean(accessToken) }
+          { useUserToken: Boolean(accessToken), explicitToken: accessToken || '' }
         ).catch(() => []);
         if (Array.isArray(byId) && byId[0]) {
           profileRow = byId[0];
         }
       }
+
+      const rowMeta = profileRow ? unpackClubsAndAccountMeta(profileRow.clubs) : null;
+      const computedHash = rowMeta?.passwordHash || localAcc?.passwordHash || (await hashPasswordSha256(password));
 
       let profileObj;
       let clubsArr = [];
@@ -2252,17 +2459,19 @@ window.handleAuthLogin = async function (event) {
           username: profileRow.username,
           bio: profileRow.bio,
           avatarUrl: profileRow.avatar_url,
-          instagramUrl: profileRow.instagram_url
+          instagramUrl: profileRow.instagram_url,
+          following: rowMeta?.following || localAcc?.profile?.following || []
         });
-        clubsArr = Array.isArray(profileRow.clubs) ? profileRow.clubs : [];
+        clubsArr = rowMeta?.clubs || [];
       } else if (localAcc) {
         profileObj = sanitizeProfile(localAcc.profile);
-        clubsArr = Array.isArray(localAcc.clubs) ? localAcc.clubs : [];
+        clubsArr = Array.isArray(localAcc.clubs) ? localAcc.clubs.filter((c) => c && !c._meta) : [];
         await supabaseFetch('profile_settings', {
           method: 'POST',
-          useUserToken: false,
+          useUserToken: Boolean(accessToken),
+          explicitToken: accessToken || '',
           headers: { Prefer: 'resolution=merge-duplicates' },
-          body: JSON.stringify(toDbProfile(profileObj, clubsArr, userId, resolvedEmail))
+          body: JSON.stringify(toDbProfile(profileObj, clubsArr, userId, resolvedEmail, computedHash))
         });
       } else {
         const fallbackUsername = normalizeUsername(userMeta?.username || resolvedEmail.split('@')[0]) || `leitor${Date.now().toString().slice(-4)}`;
@@ -2272,9 +2481,10 @@ window.handleAuthLogin = async function (event) {
         });
         await supabaseFetch('profile_settings', {
           method: 'POST',
-          useUserToken: false,
+          useUserToken: Boolean(accessToken),
+          explicitToken: accessToken || '',
           headers: { Prefer: 'resolution=merge-duplicates' },
-          body: JSON.stringify(toDbProfile(profileObj, [], userId, resolvedEmail))
+          body: JSON.stringify(toDbProfile(profileObj, [], userId, resolvedEmail, computedHash))
         });
       }
 
@@ -2282,6 +2492,29 @@ window.handleAuthLogin = async function (event) {
         `books?user_id=eq.${encodeURIComponent(userId)}&select=*&order=created_at.desc`,
         { useUserToken: false }
       ).catch(() => []);
+
+      const loadedBooks = Array.isArray(books) && books.length > 0
+        ? books.map(fromDbBook).map(sanitizeBook)
+        : (localAcc?.books || []).map(sanitizeBook);
+
+      const ownerAccount = {
+        userId,
+        email: resolvedEmail,
+        password: '',
+        passwordHash: computedHash,
+        profile: profileObj,
+        clubs: clubsArr,
+        books: loadedBooks
+      };
+
+      const ownerIdx = (appState.accounts || []).findIndex(
+        (a) => a.userId === userId || normalizeUsername(a.profile?.username) === profileObj.username
+      );
+      if (ownerIdx !== -1) {
+        appState.accounts[ownerIdx] = ownerAccount;
+      } else {
+        appState.accounts.unshift(ownerAccount);
+      }
 
       setAuthSession({
         userId,
@@ -2292,13 +2525,15 @@ window.handleAuthLogin = async function (event) {
         mode: 'supabase'
       });
 
-      appState.profile = profileObj;
-      appState.clubs = clubsArr;
-      appState.books = Array.isArray(books) && books.length > 0
-        ? books.map(fromDbBook).map(sanitizeBook)
-        : (localAcc?.books || []).map(sanitizeBook);
-      appState.activePublicUsername = profileObj.username;
+      loadAccountIntoWorkingState(ownerAccount);
       commitWorkingStateToOwnerAccount();
+
+      // Se a conta antiga ainda não tinha passwordHash no banco, grava agora com segurança
+      if (profileRow && !rowMeta?.passwordHash && computedHash) {
+        void syncSpecificProfileInBackground(ownerAccount);
+      }
+
+      await applyPendingBookCopyAfterAuth();
 
       document.getElementById('auth-login-form').reset();
       closeAuthModal();
@@ -2312,12 +2547,12 @@ window.handleAuthLogin = async function (event) {
 
     // Modo Local (localStorage)
     const acc = findLocalAccountByIdentifier(identifier);
-    if (!acc || (acc.password && acc.password !== password)) {
+    if (!acc || !(await verifyAccountPassword(password, acc, null))) {
       showToast('E-mail/@username ou senha incorretos.', '❌');
       return;
     }
 
-    switchLocalAccount(acc.userId);
+    await switchLocalAccount(acc.userId);
     document.getElementById('auth-login-form').reset();
   } catch (err) {
     showToast(`Erro ao entrar: ${err.message}`, '❌');
@@ -2348,6 +2583,9 @@ window.handleAuthSignup = async function (event) {
   if (submitBtn) submitBtn.disabled = true;
 
   try {
+    const passwordHash = await hashPasswordSha256(password);
+    const inheritedFollowing = getVisitorFollowing().filter((u) => u && u !== username);
+
     if (isSupabaseConfigured()) {
       const existing = await supabaseFetch(
         `profile_settings?username=eq.${encodeURIComponent(username)}&select=id`,
@@ -2390,20 +2628,23 @@ window.handleAuthSignup = async function (event) {
         username,
         bio,
         avatarUrl: '',
-        instagramUrl
+        instagramUrl,
+        following: inheritedFollowing
       });
 
       await supabaseFetch('profile_settings', {
         method: 'POST',
-        useUserToken: false,
+        useUserToken: Boolean(token),
+        explicitToken: token || '',
         headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify(toDbProfile(newProfile, [], userId, email))
+        body: JSON.stringify(toDbProfile(newProfile, [], userId, email, passwordHash))
       });
 
       const newAccount = {
         userId,
         email,
-        password,
+        password: '',
+        passwordHash,
         profile: newProfile,
         clubs: [],
         books: []
@@ -2427,8 +2668,10 @@ window.handleAuthSignup = async function (event) {
         mode: 'supabase'
       });
 
+      if (inheritedFollowing.length > 0) setVisitorFollowing([]);
       loadAccountIntoWorkingState(newAccount);
       saveState();
+      await applyPendingBookCopyAfterAuth();
 
       document.getElementById('auth-signup-form').reset();
       closeAuthModal();
@@ -2453,18 +2696,21 @@ window.handleAuthSignup = async function (event) {
     const newAccount = {
       userId: generateId('usr'),
       email,
-      password,
+      password: '',
+      passwordHash,
       profile: sanitizeProfile({
         name,
         username,
         bio,
         avatarUrl: '',
-        instagramUrl
+        instagramUrl,
+        following: inheritedFollowing
       }),
       clubs: [],
       books: []
     };
 
+    if (inheritedFollowing.length > 0) setVisitorFollowing([]);
     appState.accounts.unshift(newAccount);
     setAuthSession({
       userId: newAccount.userId,
@@ -2476,6 +2722,7 @@ window.handleAuthSignup = async function (event) {
     });
     loadAccountIntoWorkingState(newAccount);
     saveState();
+    await applyPendingBookCopyAfterAuth();
 
     document.getElementById('auth-signup-form').reset();
     closeAuthModal();
@@ -2721,6 +2968,148 @@ function getShareUrl() {
   return `https://naminhaestante.app/?u=${encodeURIComponent(slug)}`;
 }
 
+function getVisitorFollowing() {
+  try {
+    const raw = localStorage.getItem(VISITOR_FOLLOWING_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? [...new Set(list.map(normalizeUsername).filter(Boolean))] : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function setVisitorFollowing(list = []) {
+  try {
+    const clean = [...new Set((Array.isArray(list) ? list : []).map(normalizeUsername).filter(Boolean))];
+    localStorage.setItem(VISITOR_FOLLOWING_KEY, JSON.stringify(clean));
+  } catch (_) {}
+}
+
+function getActiveFollowingList() {
+  if (authSession?.userId) {
+    const ownAcc = findLocalAccountById(authSession.userId);
+    const ownSlug = normalizeUsername(ownAcc?.profile?.username || authSession.username);
+    const list = Array.isArray(ownAcc?.profile?.following) ? ownAcc.profile.following : [];
+    return [...new Set(list.map(normalizeUsername).filter((u) => u && u !== ownSlug))];
+  }
+  return getVisitorFollowing();
+}
+
+function isFollowingUser(targetUsername) {
+  const slug = normalizeUsername(targetUsername);
+  if (!slug) return false;
+  return getActiveFollowingList().includes(slug);
+}
+
+function getFollowingListForUser(username) {
+  const slug = normalizeUsername(username);
+  if (!slug) return [];
+  const acc = findLocalAccountByUsername(slug);
+  if (!acc) return [];
+  const list = Array.isArray(acc.profile?.following) ? acc.profile.following : [];
+  return [...new Set(list.map(normalizeUsername).filter((u) => u && u !== slug))];
+}
+
+function getFollowersListForUser(username) {
+  const targetSlug = normalizeUsername(username);
+  if (!targetSlug) return [];
+  const followers = [];
+  for (const acc of (appState?.accounts || [])) {
+    const followerSlug = normalizeUsername(acc?.profile?.username);
+    if (!followerSlug || followerSlug === targetSlug) continue;
+    const list = Array.isArray(acc?.profile?.following) ? acc.profile.following : [];
+    if (list.map(normalizeUsername).includes(targetSlug)) {
+      followers.push(followerSlug);
+    }
+  }
+  if (!authSession?.userId && getVisitorFollowing().includes(targetSlug)) {
+    followers.push('visitante');
+  }
+  return followers;
+}
+
+window.toggleFollowUser = async function (targetUsername, event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const targetSlug = normalizeUsername(targetUsername || getCleanUsername());
+  if (!targetSlug) return;
+
+  if (authSession?.userId) {
+    const ownAcc = findLocalAccountById(authSession.userId);
+    const ownSlug = normalizeUsername(ownAcc?.profile?.username || authSession.username);
+    if (ownSlug && targetSlug === ownSlug) {
+      showToast('Você já é o(a) dono(a) desta estante! 😉', 'ℹ️');
+      return;
+    }
+
+    if (!ownAcc) return;
+    const currentList = getActiveFollowingList();
+    const already = currentList.includes(targetSlug);
+    const nextList = already
+      ? currentList.filter((u) => u !== targetSlug)
+      : [...currentList, targetSlug];
+
+    ownAcc.profile = sanitizeProfile({
+      ...ownAcc.profile,
+      following: nextList
+    });
+
+    if (normalizeUsername(appState.profile?.username) === ownSlug) {
+      appState.profile.following = [...ownAcc.profile.following];
+    }
+
+    saveState();
+    renderAll();
+    showToast(
+      already ? `Você deixou de seguir @${targetSlug}.` : `Agora você segue @${targetSlug}! 🌟`,
+      already ? '👋' : '⭐'
+    );
+    if (isSupabaseConfigured()) {
+      await syncSpecificProfileInBackground(ownAcc);
+    }
+    return;
+  }
+
+  // Visitante ainda não logado: salva localmente neste navegador
+  const currentVisitorList = getVisitorFollowing();
+  const already = currentVisitorList.includes(targetSlug);
+  const nextVisitorList = already
+    ? currentVisitorList.filter((u) => u !== targetSlug)
+    : [...currentVisitorList, targetSlug];
+
+  setVisitorFollowing(nextVisitorList);
+  renderAll();
+  showToast(
+    already
+      ? `Você deixou de seguir @${targetSlug}.`
+      : `Agora você segue @${targetSlug}! Crie uma conta para sincronizar.`,
+    already ? '👋' : '⭐'
+  );
+};
+
+window.scrollToCommunityDirectory = function () {
+  const section = document.getElementById('public-profiles-section');
+  if (section) {
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  setTimeout(() => {
+    const input = document.getElementById('platform-search-input');
+    if (input) input.focus({ preventScroll: true });
+  }, 450);
+};
+
+window.openFollowingInDirectory = function () {
+  platformSearchScope = 'following';
+  renderPublicProfilesDirectory();
+  refreshIcons();
+  const section = document.getElementById('public-profiles-section');
+  if (section) {
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+};
+
 function renderPublicProfile() {
   const p = appState.profile;
   const cleanUser = getCleanUsername();
@@ -2729,6 +3118,38 @@ function renderPublicProfile() {
   document.getElementById('profile-name').textContent = p.name || 'Leitor(a)';
   document.getElementById('profile-username-badge').textContent = `@${cleanUser}`;
   document.getElementById('profile-bio').textContent = p.bio || '';
+
+  const followersCount = getFollowersListForUser(cleanUser).length;
+  const followingCount = getFollowingListForUser(cleanUser).length;
+  const booksTotalCount = (appState.books || []).length;
+
+  const followersEl = document.getElementById('profile-followers-count');
+  const followersLabelEl = document.getElementById('profile-followers-label');
+  const followingEl = document.getElementById('profile-following-count');
+  const booksCountEl = document.getElementById('profile-books-total-count');
+  const booksLabelEl = document.getElementById('profile-books-total-label');
+  if (followersEl) followersEl.textContent = String(followersCount);
+  if (followersLabelEl) followersLabelEl.textContent = followersCount === 1 ? 'seguidor' : 'seguidores';
+  if (followingEl) followingEl.textContent = String(followingCount);
+  if (booksCountEl) booksCountEl.textContent = String(booksTotalCount);
+  if (booksLabelEl) booksLabelEl.textContent = booksTotalCount === 1 ? 'livro' : 'livros';
+
+  const followBtn = document.getElementById('btn-follow-active-profile');
+  if (followBtn) {
+    const isOwnProfile = Boolean(authSession?.userId && normalizeUsername(authSession.username) === cleanUser);
+    if (isOwnProfile) {
+      followBtn.classList.add('hidden');
+    } else {
+      const followingNow = isFollowingUser(cleanUser);
+      followBtn.classList.remove('hidden');
+      followBtn.className = followingNow
+        ? 'inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700 text-xs sm:text-sm font-bold shadow-sm transition'
+        : 'inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs sm:text-sm font-bold shadow-sm transition';
+      followBtn.innerHTML = followingNow
+        ? '<span>✓</span><span>Seguindo</span>'
+        : '<span>➕</span><span>Seguir Estante</span>';
+    }
+  }
 
   const avatarEl = document.getElementById('profile-avatar');
   avatarEl.dataset.fallbackApplied = '';
@@ -2914,7 +3335,7 @@ window.clearPlatformSearch = function () {
 };
 
 window.setPlatformSearchScope = function (scope) {
-  platformSearchScope = ['all', 'users', 'books', 'topics'].includes(scope) ? scope : 'all';
+  platformSearchScope = ['all', 'following', 'users', 'books', 'topics'].includes(scope) ? scope : 'all';
   renderPublicProfilesDirectory();
   refreshIcons();
 };
@@ -2948,10 +3369,6 @@ window.openUserBookFromGlobalSearch = function (username, bookId) {
 
 window.openProfileAndScroll = function (username) {
   selectPublicProfile(username);
-  const target = document.getElementById('active-profile-card') || document.getElementById('profile-name');
-  if (target) {
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
 };
 
 function renderPlatformSearchResults(accounts, qNorm) {
@@ -3325,19 +3742,39 @@ function renderPublicProfilesDirectory() {
   const accounts = appState?.accounts || [];
   const comments = appState?.comments || [];
   const activeSlug = normalizeUsername(appState?.profile?.username);
+  const ownSlug = authSession?.userId ? normalizeUsername(authSession.username) : '';
+  const followingList = getActiveFollowingList();
+  const followingSet = new Set(followingList);
   const qNorm = normalizeSearchText(platformSearchTerm);
 
-  const filteredAccounts = qNorm
-    ? accounts.filter((acc) => getAccountSearchableText(acc, comments).includes(qNorm))
+  const topCommunityCountEl = document.getElementById('top-community-count-badge');
+  const topFollowingCountEl = document.getElementById('top-following-count-badge');
+  const tabFollowingCountEl = document.getElementById('platform-following-tab-count');
+  if (topCommunityCountEl) {
+    topCommunityCountEl.textContent = `${accounts.length} ${accounts.length === 1 ? 'perfil' : 'perfis'}`;
+  }
+  if (topFollowingCountEl) topFollowingCountEl.textContent = String(followingList.length);
+  if (tabFollowingCountEl) tabFollowingCountEl.textContent = String(followingList.length);
+
+  const scopeAccounts = platformSearchScope === 'following'
+    ? accounts.filter((acc) => followingSet.has(normalizeUsername(acc.profile?.username)))
     : accounts;
 
+  const filteredAccounts = qNorm
+    ? scopeAccounts.filter((acc) => getAccountSearchableText(acc, comments).includes(qNorm))
+    : scopeAccounts;
+
   if (countEl) {
-    countEl.textContent = qNorm
-      ? `${filteredAccounts.length} de ${accounts.length} ${accounts.length === 1 ? 'perfil' : 'perfis'}`
-      : `${accounts.length} ${accounts.length === 1 ? 'perfil ativo' : 'perfis ativos'}`;
+    if (platformSearchScope === 'following') {
+      countEl.textContent = `${filteredAccounts.length} seguido(s)`;
+    } else {
+      countEl.textContent = qNorm
+        ? `${filteredAccounts.length} de ${accounts.length} ${accounts.length === 1 ? 'perfil' : 'perfis'}`
+        : `${accounts.length} ${accounts.length === 1 ? 'perfil ativo' : 'perfis ativos'}`;
+    }
   }
 
-  const showUsersGrid = platformSearchScope === 'all' || platformSearchScope === 'users';
+  const showUsersGrid = platformSearchScope === 'all' || platformSearchScope === 'users' || platformSearchScope === 'following';
   listEl.classList.toggle('hidden', !showUsersGrid);
 
   if (showUsersGrid) {
@@ -3345,6 +3782,9 @@ function renderPublicProfilesDirectory() {
       const p = acc.profile || {};
       const slug = normalizeUsername(p.username) || 'oseunome';
       const isActive = slug === activeSlug;
+      const isOwnCard = Boolean(ownSlug && slug === ownSlug);
+      const isFollowing = followingSet.has(slug);
+      const followersCount = getFollowersListForUser(slug).length;
       const books = Array.isArray(acc.books) ? acc.books : [];
       const clubs = Array.isArray(acc.clubs) ? acc.clubs : [];
       const bookCount = books.length;
@@ -3383,9 +3823,21 @@ function renderPublicProfilesDirectory() {
           </div>`
         : '';
 
+      const followCardBtnHtml = isOwnCard
+        ? ''
+        : `<button type="button" onclick="toggleFollowUser('${escapeHtml(slug)}', event)"
+            class="shrink-0 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition border ${
+              isFollowing
+                ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                : 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+            }" title="${isFollowing ? 'Deixar de seguir' : 'Seguir estante'}">
+            ${isFollowing ? '✓ Seguindo' : '➕ Seguir'}
+          </button>`;
+
       return `
-        <button type="button" onclick="selectPublicProfile('${escapeHtml(slug)}')"
-          class="group relative min-h-[310px] h-full rounded-2xl p-4 border flex flex-col items-center justify-between gap-2.5 text-center transition ${
+        <div role="button" tabindex="0" onclick="selectPublicProfile('${escapeHtml(slug)}')"
+          onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPublicProfile('${escapeHtml(slug)}'); }"
+          class="group cursor-pointer relative min-h-[320px] h-full rounded-2xl p-4 border flex flex-col items-center justify-between gap-2.5 text-center transition focus:outline-none focus:ring-2 focus:ring-amber-500 ${
             isActive
               ? 'bg-gradient-to-b from-amber-50 to-white dark:from-amber-950/40 dark:to-stone-900 border-amber-400 dark:border-amber-600 shadow-soft ring-2 ring-amber-400/40'
               : 'bg-paper-50 hover:bg-white dark:bg-stone-800/60 dark:hover:bg-stone-800 border-stone-200/80 dark:border-stone-700/80 hover:shadow-soft'
@@ -3410,54 +3862,73 @@ function renderPublicProfilesDirectory() {
           </div>
 
           <div class="w-full space-y-2 pt-1">
-            <span class="inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 text-[11px] font-semibold text-stone-700 dark:text-stone-200">
-              📚 ${bookCount} ${bookCount === 1 ? 'livro' : 'livros'} na estante
-            </span>
-            <div class="w-full py-1.5 rounded-xl text-xs font-bold transition ${
-              isActive
-                ? 'bg-stone-900 text-white dark:bg-amber-500 dark:text-stone-950'
-                : 'bg-stone-100 group-hover:bg-amber-500 text-stone-700 group-hover:text-stone-950 dark:bg-stone-700 dark:text-stone-200 dark:group-hover:bg-amber-500 dark:group-hover:text-stone-950'
-            }">
-              ${isActive ? '✓ Selecionada' : 'Ver Estante'}
+            <div class="flex flex-wrap items-center justify-center gap-1.5">
+              <span class="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 text-[10px] font-semibold text-stone-700 dark:text-stone-200">
+                👥 ${followersCount} ${followersCount === 1 ? 'seg.' : 'segs.'}
+              </span>
+              <span class="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full bg-paper-100 dark:bg-stone-800 border border-paper-200 dark:border-stone-700 text-[10px] font-semibold text-stone-700 dark:text-stone-200">
+                📚 ${bookCount} ${bookCount === 1 ? 'livro' : 'livros'}
+              </span>
+            </div>
+            <div class="flex items-center gap-1.5 w-full">
+              <span class="flex-1 py-1.5 rounded-xl text-xs font-bold transition ${
+                isActive
+                  ? 'bg-stone-900 text-white dark:bg-amber-500 dark:text-stone-950'
+                  : 'bg-stone-100 group-hover:bg-amber-500 text-stone-700 group-hover:text-stone-950 dark:bg-stone-700 dark:text-stone-200 dark:group-hover:bg-amber-500 dark:group-hover:text-stone-950'
+              }">
+                ${isActive ? '✓ Em Destaque' : 'Ver Estante'}
+              </span>
+              ${followCardBtnHtml}
             </div>
           </div>
-        </button>
+        </div>
       `;
     }).join('');
 
     const emptyUsersHtml = filteredAccounts.length === 0
-      ? `<div class="col-span-full rounded-2xl p-6 border border-dashed border-stone-300 dark:border-stone-700 text-center space-y-2 bg-stone-50/70 dark:bg-stone-800/40">
-          <p class="text-sm font-semibold text-stone-700 dark:text-stone-200">Nenhuma pessoa encontrada para "${escapeHtml(platformSearchTerm.trim())}"</p>
-          <p class="text-xs text-stone-500 dark:text-stone-400">Tente buscar outro nome, @usuario, livro ou assunto.</p>
-          <button type="button" onclick="clearPlatformSearch()"
-            class="mt-1 inline-flex items-center px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition">
-            Limpar busca
-          </button>
-        </div>`
+      ? (platformSearchScope === 'following' && !qNorm && followingList.length === 0
+        ? `<div class="col-span-full rounded-2xl p-6 border border-dashed border-stone-300 dark:border-stone-700 text-center space-y-2 bg-stone-50/70 dark:bg-stone-800/40">
+            <p class="text-sm font-semibold text-stone-700 dark:text-stone-200">Você ainda não segue nenhuma estante.</p>
+            <p class="text-xs text-stone-500 dark:text-stone-400">Clique em "➕ Seguir" nos perfis da comunidade para acompanhar as leituras por aqui.</p>
+            <button type="button" onclick="setPlatformSearchScope('all')"
+              class="mt-1 inline-flex items-center px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition">
+              Explorar todos os perfis
+            </button>
+          </div>`
+        : `<div class="col-span-full rounded-2xl p-6 border border-dashed border-stone-300 dark:border-stone-700 text-center space-y-2 bg-stone-50/70 dark:bg-stone-800/40">
+            <p class="text-sm font-semibold text-stone-700 dark:text-stone-200">Nenhuma pessoa encontrada para "${escapeHtml(platformSearchTerm.trim())}"</p>
+            <p class="text-xs text-stone-500 dark:text-stone-400">Tente buscar outro nome, @usuario, livro ou assunto.</p>
+            <button type="button" onclick="clearPlatformSearch()"
+              class="mt-1 inline-flex items-center px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition">
+              Limpar busca
+            </button>
+          </div>`)
       : '';
 
-    const addProfileCardHtml = `
-      <button type="button" onclick="openAuthModal('signup')"
-        class="group min-h-[310px] h-full rounded-2xl p-4 border-2 border-dashed border-stone-300 hover:border-amber-500 dark:border-stone-700 dark:hover:border-amber-500 bg-stone-50/50 hover:bg-amber-50/40 dark:bg-stone-900/40 dark:hover:bg-amber-950/20 flex flex-col items-center justify-center text-center gap-3 transition">
-        <div class="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center text-2xl shadow-xs group-hover:scale-105 transition">
-          ➕
-        </div>
-        <div class="space-y-1">
-          <p class="font-serif font-bold text-sm sm:text-base text-stone-800 dark:text-stone-100">Criar Meu Perfil</p>
-          <p class="text-[11px] text-stone-500 dark:text-stone-400 leading-snug px-2">Cadastre sua estante e apareça aqui na vitrine</p>
-        </div>
-      </button>
-    `;
+    const addProfileCardHtml = platformSearchScope === 'following'
+      ? ''
+      : `
+        <button type="button" onclick="openAuthModal('signup')"
+          class="group min-h-[320px] h-full rounded-2xl p-4 border-2 border-dashed border-stone-300 hover:border-amber-500 dark:border-stone-700 dark:hover:border-amber-500 bg-stone-50/50 hover:bg-amber-50/40 dark:bg-stone-900/40 dark:hover:bg-amber-950/20 flex flex-col items-center justify-center text-center gap-3 transition">
+          <div class="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center text-2xl shadow-xs group-hover:scale-105 transition">
+            ➕
+          </div>
+          <div class="space-y-1">
+            <p class="font-serif font-bold text-sm sm:text-base text-stone-800 dark:text-stone-100">Criar Meu Perfil</p>
+            <p class="text-[11px] text-stone-500 dark:text-stone-400 leading-snug px-2">Cadastre sua estante e apareça aqui na vitrine</p>
+          </div>
+        </button>
+      `;
 
     listEl.innerHTML = filteredAccounts.length > 0
       ? profileCardsHtml + addProfileCardHtml
       : emptyUsersHtml;
   }
 
-  renderPlatformSearchResults(accounts, qNorm);
+  renderPlatformSearchResults(scopeAccounts, qNorm);
 }
 
-window.selectPublicProfile = function (username) {
+window.selectPublicProfile = function (username, options = {}) {
   const acc = findLocalAccountByUsername(username);
   if (!acc) return;
 
@@ -3474,6 +3945,18 @@ window.selectPublicProfile = function (username) {
 
   renderAll();
   showToast(`Visualizando a estante de @${acc.profile.username}`, '📚');
+
+  if (options.scroll !== false) {
+    const heroCard = document.getElementById('active-profile-card') || document.getElementById('profile-name');
+    if (heroCard) {
+      heroCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      heroCard.classList.add('ring-4', 'ring-amber-400/70');
+      if (profileHighlightTimeout) clearTimeout(profileHighlightTimeout);
+      profileHighlightTimeout = setTimeout(() => {
+        heroCard.classList.remove('ring-4', 'ring-amber-400/70');
+      }, 1400);
+    }
+  }
 };
 
 function renderPublicShelf() {
@@ -3762,6 +4245,7 @@ window.openBookModal = function (bookId) {
   metaEl.innerHTML = metaItems.join('');
 
   document.getElementById('modal-book-amazon-btn').href = buildAmazonUrl(book);
+  updateModalCopyBookButton(book);
 
   const reviewBox = document.getElementById('modal-book-review-box');
   const reviewEl = document.getElementById('modal-book-review');
@@ -3830,6 +4314,170 @@ window.logoutVisitor = function () {
   renderModalVisitorArea();
 };
 
+function findDuplicateBookInAccount(booksList = [], srcBook = {}) {
+  const targetIsbn = cleanIsbn(srcBook.isbn);
+  const targetTitle = normalizeSearchText(srcBook.title);
+  const targetAuthor = normalizeSearchText(srcBook.author);
+  return (Array.isArray(booksList) ? booksList : []).find((b) => {
+    if (targetIsbn && cleanIsbn(b.isbn) === targetIsbn) return true;
+    return targetTitle && normalizeSearchText(b.title) === targetTitle && normalizeSearchText(b.author) === targetAuthor;
+  }) || null;
+}
+
+function updateModalCopyBookButton(book) {
+  const copyBtn = document.getElementById('modal-book-copy-btn');
+  if (!copyBtn || !book) return;
+
+  const viewedSlug = getCleanUsername();
+  const isOwnShelf = Boolean(authSession?.userId && normalizeUsername(authSession.username) === viewedSlug);
+  if (isOwnShelf) {
+    copyBtn.classList.add('hidden');
+    return;
+  }
+
+  const ownAcc = authSession?.userId ? findLocalAccountById(authSession.userId) : null;
+  const alreadyHas = ownAcc ? Boolean(findDuplicateBookInAccount(ownAcc.books, book)) : false;
+
+  copyBtn.classList.remove('hidden');
+  copyBtn.disabled = alreadyHas;
+  if (alreadyHas) {
+    copyBtn.className = 'inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold text-sm w-full sm:w-auto cursor-default';
+    copyBtn.innerHTML = '<span>✓</span><span>Já está na sua estante</span>';
+  } else {
+    copyBtn.className = 'inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-amber-100 dark:bg-stone-800 dark:hover:bg-amber-950/60 text-stone-800 dark:text-stone-100 border border-stone-200 dark:border-stone-700 font-semibold text-sm transition w-full sm:w-auto';
+    copyBtn.innerHTML = '<span>➕</span><span>Quero Ler na Minha Estante</span>';
+  }
+}
+
+async function addBookToOwnWishlist(srcBook) {
+  if (!authSession?.userId || !srcBook) return null;
+  const ownAcc = findLocalAccountById(authSession.userId);
+  if (!ownAcc) return null;
+
+  const existing = findDuplicateBookInAccount(ownAcc.books, srcBook);
+  if (existing) {
+    return { book: existing, created: false };
+  }
+
+  const copiedBook = sanitizeBook({
+    id: generateId('book'),
+    title: srcBook.title,
+    author: srcBook.author,
+    coverUrl: srcBook.coverUrl || srcBook.thumbnail || '',
+    shelf: 'wishlist',
+    rating: 0,
+    progress: 0,
+    synopsis: srcBook.synopsis || srcBook.description || '',
+    review: '',
+    isbn: srcBook.isbn || '',
+    createdAt: new Date().toISOString()
+  });
+
+  if (!Array.isArray(ownAcc.books)) ownAcc.books = [];
+  ownAcc.books.unshift(copiedBook);
+
+  if (normalizeUsername(appState.profile?.username) === normalizeUsername(ownAcc.profile?.username)) {
+    appState.books.unshift(copiedBook);
+  }
+  saveState();
+  await syncBookInBackground(copiedBook, ownAcc.userId);
+  return { book: copiedBook, created: true };
+}
+
+async function applyPendingBookCopyAfterAuth() {
+  if (!pendingBookToImport || !pendingBookToImport.directCopyWishlist || !authSession?.userId) {
+    return false;
+  }
+  const srcBook = pendingBookToImport;
+  pendingBookToImport = null;
+  const result = await addBookToOwnWishlist(srcBook);
+  if (result?.created) {
+    showToast(`"${result.book.title}" salvo em Quero Ler na sua estante! 🎯`, '✅');
+  } else if (result?.book) {
+    showToast(`"${result.book.title}" já estava na sua estante.`, 'ℹ️');
+  }
+  return true;
+}
+
+window.copyModalBookToMyShelf = async function () {
+  const book = (appState.books || []).find((b) => b.id === activeModalBookId);
+  if (!book) return;
+
+  if (!authSession?.userId) {
+    pendingBookToImport = {
+      title: book.title,
+      author: book.author,
+      coverUrl: book.coverUrl || '',
+      synopsis: book.synopsis || '',
+      isbn: book.isbn || '',
+      directCopyWishlist: true
+    };
+    pendingAdminAfterAuth = false;
+    closeBookModal();
+    openAuthModal('login');
+    showToast('Entre ou crie sua conta para salvar este livro em "Quero Ler".', '🔐');
+    return;
+  }
+
+  const result = await addBookToOwnWishlist(book);
+  if (result) {
+    updateModalCopyBookButton(book);
+    renderPublicProfilesDirectory();
+    if (result.created) {
+      showToast(`"${book.title}" adicionado à sua lista Quero Ler! 🎯`, '✅');
+    } else {
+      showToast(`"${book.title}" já está na sua estante!`, 'ℹ️');
+    }
+  }
+};
+
+function getVisitorOwnedCommentIds() {
+  try {
+    const raw = localStorage.getItem(VISITOR_COMMENTS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function addVisitorOwnedCommentId(commentId) {
+  if (!commentId) return;
+  try {
+    const list = getVisitorOwnedCommentIds();
+    if (!list.includes(commentId)) {
+      list.push(commentId);
+      localStorage.setItem(VISITOR_COMMENTS_KEY, JSON.stringify(list.slice(-100)));
+    }
+  } catch (_) {}
+}
+
+function canDeleteComment(comment) {
+  if (!comment || !comment.id) return false;
+  const isShelfOwner = Boolean(authSession?.userId && normalizeUsername(authSession.username) === getCleanUsername());
+  if (isShelfOwner) return true;
+  if (comment.authorUserId && authSession?.userId && comment.authorUserId === authSession.userId) return true;
+  return getVisitorOwnedCommentIds().includes(comment.id);
+}
+
+window.handleDeleteComment = async function (commentId) {
+  const target = (appState.comments || []).find((c) => c.id === commentId);
+  if (!target || !canDeleteComment(target)) {
+    showToast('Você só pode excluir comentários na sua própria estante.', '🔒');
+    return;
+  }
+  if (!window.confirm('Excluir este comentário permanentemente?')) return;
+
+  appState.comments = (appState.comments || []).filter((c) => c.id !== commentId);
+  saveState();
+  if (activeModalBookId) {
+    renderModalComments(activeModalBookId);
+  }
+  renderPublicShelf();
+  showToast('Comentário excluído.', '🗑️');
+  await deleteCommentInBackground(commentId);
+};
+
 window.handleAddComment = async function (event) {
   event.preventDefault();
   if (!activeModalBookId) return;
@@ -3848,11 +4496,13 @@ window.handleAddComment = async function (event) {
     bookId: activeModalBookId,
     authorName: visitor.name,
     authorHandle: visitor.handle || '',
+    authorUserId: authSession?.userId || '',
     text,
     rating,
     createdAt: new Date().toISOString()
   };
 
+  addVisitorOwnedCommentId(newComment.id);
   appState.comments.unshift(newComment);
   saveState();
 
@@ -3876,21 +4526,31 @@ function renderModalComments(bookId) {
     return;
   }
 
-  listEl.innerHTML = comments.map((c) => `
-    <div class="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-100 dark:border-stone-800 space-y-1.5">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
-          <span class="font-bold text-xs sm:text-sm text-stone-900 dark:text-white">${escapeHtml(c.authorName)}</span>
-          ${c.authorHandle ? `<span class="text-xs text-amber-700 dark:text-amber-400 font-medium">${escapeHtml(c.authorHandle)}</span>` : ''}
+  listEl.innerHTML = comments.map((c) => {
+    const deletable = canDeleteComment(c);
+    return `
+      <div class="p-3.5 rounded-2xl bg-stone-50 dark:bg-stone-800/70 border border-stone-100 dark:border-stone-800 space-y-1.5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-xs sm:text-sm text-stone-900 dark:text-white">${escapeHtml(c.authorName)}</span>
+            ${c.authorHandle ? `<span class="text-xs text-amber-700 dark:text-amber-400 font-medium">${escapeHtml(c.authorHandle)}</span>` : ''}
+          </div>
+          <div class="flex items-center gap-2">
+            ${Number(c.rating) > 0 ? renderStars(c.rating, 'w-3 h-3') : ''}
+            <span class="text-[11px] text-stone-400">${escapeHtml(formatRelativeDate(c.createdAt))}</span>
+            ${deletable ? `
+              <button type="button" onclick="handleDeleteComment('${escapeHtml(c.id)}')"
+                title="Excluir comentário"
+                class="ml-1 px-2 py-0.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 text-[10px] font-semibold transition">
+                🗑️ Excluir
+              </button>
+            ` : ''}
+          </div>
         </div>
-        <div class="flex items-center gap-2">
-          ${Number(c.rating) > 0 ? renderStars(c.rating, 'w-3 h-3') : ''}
-          <span class="text-[11px] text-stone-400">${escapeHtml(formatRelativeDate(c.createdAt))}</span>
-        </div>
+        <p class="text-xs sm:text-sm text-stone-700 dark:text-stone-200 leading-relaxed">${escapeHtml(c.text)}</p>
       </div>
-      <p class="text-xs sm:text-sm text-stone-700 dark:text-stone-200 leading-relaxed">${escapeHtml(c.text)}</p>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 /* ==========================================================================
@@ -3898,6 +4558,11 @@ function renderModalComments(bookId) {
    ========================================================================== */
 window.openQrModal = function () {
   const modal = document.getElementById('qr-modal');
+  const cleanUser = getCleanUsername();
+  const titleEl = document.getElementById('qr-modal-title');
+  if (titleEl) {
+    titleEl.textContent = `Compartilhar Estante (@${cleanUser})`;
+  }
   const shareUrl = getShareUrl();
   document.getElementById('share-url-input').value = shareUrl;
 
@@ -4952,7 +5617,67 @@ function populateAdminProfileForm() {
   document.getElementById('cfg-bio').value = p.bio || '';
   document.getElementById('cfg-avatar').value = p.avatarUrl || '';
   document.getElementById('cfg-instagram').value = p.instagramUrl || '';
+  updateProfileAvatarPreview(p.avatarUrl || '');
 }
+
+window.updateProfileAvatarPreview = function (url) {
+  const img = document.getElementById('cfg-avatar-preview');
+  if (!img) return;
+  const cleanUrl = safeUrl(url, '');
+  const displayName = document.getElementById('cfg-name')?.value || appState?.profile?.name || 'Perfil';
+  img.dataset.fallbackApplied = '';
+  img.onerror = function () {
+    handleAvatarError(this, displayName);
+  };
+  if (cleanUrl) {
+    img.src = cleanUrl;
+  } else {
+    handleAvatarError(img, displayName);
+  }
+};
+
+window.handleAvatarFileUpload = function (event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  if (!String(file.type || '').startsWith('image/')) {
+    showToast('Escolha um arquivo de imagem válido (JPG, PNG ou WebP).', '⚠️');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function (loadEvt) {
+    const dataSrc = String(loadEvt?.target?.result || '');
+    if (!dataSrc) return;
+    const tempImg = new Image();
+    tempImg.onload = function () {
+      try {
+        const size = 160;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const minSide = Math.min(tempImg.width, tempImg.height) || 1;
+        const sx = (tempImg.width - minSide) / 2;
+        const sy = (tempImg.height - minSide) / 2;
+        ctx.drawImage(tempImg, sx, sy, minSide, minSide, 0, 0, size, size);
+        const compressedUri = canvas.toDataURL('image/jpeg', 0.82);
+        const cfgAvatar = document.getElementById('cfg-avatar');
+        if (cfgAvatar) cfgAvatar.value = compressedUri;
+        updateProfileAvatarPreview(compressedUri);
+        showToast('Foto carregada! Clique em "Salvar Perfil" para aplicar.', '📷');
+      } catch (err) {
+        showToast(`Não foi possível processar a imagem: ${err.message}`, '❌');
+      }
+      event.target.value = '';
+    };
+    tempImg.onerror = function () {
+      showToast('Erro ao carregar a imagem selecionada.', '❌');
+      event.target.value = '';
+    };
+    tempImg.src = dataSrc;
+  };
+  reader.readAsDataURL(file);
+};
 
 window.handleSaveProfile = async function (event) {
   event.preventDefault();
@@ -4992,13 +5717,14 @@ window.handleSaveProfile = async function (event) {
     }
   }
 
-  const updatedProfile = {
+  const updatedProfile = sanitizeProfile({
     name,
     username,
     bio: document.getElementById('cfg-bio').value.trim(),
     avatarUrl: document.getElementById('cfg-avatar').value.trim(),
-    instagramUrl: document.getElementById('cfg-instagram').value.trim()
-  };
+    instagramUrl: document.getElementById('cfg-instagram').value.trim(),
+    following: appState.profile?.following || []
+  });
 
   // Se estiver editando a conta padrão (@leitoracriativa) com outro @username, preserva o perfil padrão e cria um novo separado
   const isEditingDemoWithNewUsername =
@@ -5023,7 +5749,8 @@ window.handleSaveProfile = async function (event) {
     const newAccount = {
       userId: generateId('usr'),
       email: `${username}@local.estante`,
-      password: '123456',
+      password: '',
+      passwordHash: DEMO_PASSWORD_HASH,
       profile: updatedProfile,
       clubs: [],
       books: customBooks
@@ -5117,7 +5844,11 @@ window.removeClub = async function (clubId) {
    BACKUP JSON & RESTAURAÇÃO DE DADOS DE EXEMPLO
    ========================================================================== */
 window.exportBackupJson = function () {
-  const payload = JSON.stringify(appState, null, 2);
+  const safeAccounts = (appState.accounts || []).map((acc) => ({
+    ...acc,
+    password: ''
+  }));
+  const payload = JSON.stringify({ ...appState, accounts: safeAccounts }, null, 2);
   const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -5142,14 +5873,18 @@ window.importBackupJson = function (event) {
       const seed = createSeedState();
 
       if (Array.isArray(parsed.accounts) && parsed.accounts.length > 0) {
-        const accounts = parsed.accounts.map((acc) => ({
-          userId: acc.userId || generateId('usr'),
-          email: acc.email || '',
-          password: acc.password || '',
-          profile: sanitizeProfile(acc.profile),
-          clubs: Array.isArray(acc.clubs) ? acc.clubs : [],
-          books: Array.isArray(acc.books) ? acc.books.map(sanitizeBook) : []
-        }));
+        const accounts = parsed.accounts.map((acc) => {
+          const unpacked = unpackClubsAndAccountMeta(acc.clubs || []);
+          return {
+            userId: acc.userId || generateId('usr'),
+            email: acc.email || '',
+            password: acc.passwordHash ? '' : (acc.password || ''),
+            passwordHash: acc.passwordHash || unpacked.passwordHash || '',
+            profile: sanitizeProfile(acc.profile, { following: unpacked.following }),
+            clubs: unpacked.clubs,
+            books: Array.isArray(acc.books) ? acc.books.map(sanitizeBook) : []
+          };
+        });
         const activeAcc = accounts[0];
         appState = {
           accounts,
