@@ -187,7 +187,12 @@
             <span>🌐</span>
             <span>Comunidade Na Minha Estante</span>
           </span>
-          <span id="top-community-count-badge" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-paper-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border border-paper-200 dark:border-stone-700">0 perfis</span>
+          <span id="top-community-count-badge" class="hidden">0 perfis</span>
+          <a id="top-black-friday-pill" href="https://www.amazon.com.br/blackfriday?tag=qualquercoi05-20" target="_blank" rel="noopener noreferrer"
+            class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-950 hover:bg-stone-900 text-amber-400 border border-amber-500/50 text-[11px] sm:text-xs font-bold shadow-xs transition">
+            <span>🔥</span>
+            <span>Black Friday Amazon: Livros &amp; Kindle →</span>
+          </a>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
@@ -251,6 +256,10 @@
                 <strong id="profile-books-total-count" class="text-stone-900 dark:text-white">0</strong>
                 <span id="profile-books-total-label">livros</span>
               </span>
+              <a id="profile-reading-setup-badge" href="#" target="_blank" rel="noopener noreferrer"
+                title="Ver recomendação de leitura na Amazon"
+                class="hidden inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 border border-amber-200/80 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 font-semibold transition">
+              </a>
             </div>
 
             <!-- Botões do Perfil -->
@@ -286,6 +295,43 @@
             <span id="clubs-count-label" class="text-xs text-stone-400 dark:text-stone-500"></span>
           </div>
           <div id="clubs-container" class="flex flex-wrap gap-2.5"></div>
+        </div>
+      </div>
+
+      <!-- Banner Black Friday Amazon (Preto & Dourado Editorial) -->
+      <div id="black-friday-banner-card" class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-stone-950 via-stone-900 to-stone-950 border border-amber-500/40 shadow-soft p-4 sm:p-5 text-white">
+        <div class="absolute -right-10 -top-10 w-44 h-44 rounded-full bg-amber-500/15 blur-2xl pointer-events-none"></div>
+        <div class="relative flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div class="space-y-1">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500 text-stone-950 text-[10px] font-extrabold uppercase tracking-wider">
+              <span>🔥</span>
+              <span>Black Friday Amazon</span>
+            </span>
+            <h2 class="font-serif text-lg sm:text-xl font-bold text-white leading-snug">
+              Ofertas em Livros, Box, E-books e Leitores Kindle
+            </h2>
+            <p class="text-xs text-stone-300">
+              Aproveite os descontos da Amazon Brasil selecionados para leitores e garanta suas próximas leituras.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <a id="bf-link-books" href="https://www.amazon.com.br/s?k=ofertas+livros+box+black+friday&i=stripbooks&tag=qualquercoi05-20" target="_blank" rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-extrabold shadow-sm transition">
+              <span>📚</span>
+              <span>Ofertas de Livros &amp; Box</span>
+            </a>
+            <a id="bf-link-kindle" href="https://www.amazon.com.br/s?k=Kindle+Paperwhite+e-reader+oferta&tag=qualquercoi05-20" target="_blank" rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-amber-300 border border-amber-500/40 text-xs font-bold transition">
+              <span>📱</span>
+              <span>Kindle em Promoção</span>
+            </a>
+            <a id="bf-link-main" href="https://www.amazon.com.br/blackfriday?tag=qualquercoi05-20" target="_blank" rel="noopener noreferrer"
+              class="inline-flex items-center gap-1 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/15 transition">
+              <span>🏷️</span>
+              <span>Todas as Ofertas →</span>
+            </a>
+          </div>
         </div>
       </div>
 
@@ -472,6 +518,46 @@
 
         <!-- Resultados Multi-Assunto na Plataforma (Livros, Autores, Clubes & Comentários) -->
         <div id="platform-search-results" class="hidden pt-4 border-t border-stone-100 dark:border-stone-800 space-y-5"></div>
+      </div>
+
+      <!-- Vitrine Discreta de Leitura Digital & Audiobooks -->
+      <div id="digital-reading-hub-card" class="rounded-3xl bg-paper-100/90 dark:bg-stone-900 border border-paper-200 dark:border-stone-800 p-4 sm:p-5 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-stone-600 dark:text-stone-300 flex items-center gap-1.5">
+            <span>✨</span>
+            <span>Experiência de Leitura Digital</span>
+          </h2>
+          <span class="text-[11px] text-stone-500 dark:text-stone-400">E-books, audiolivros e dispositivos recomendados</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <a id="hub-link-kindle-unlimited" href="https://www.amazon.com.br/kindle-dbs/hz/subscribe/ku?tag=qualquercoi05-20" target="_blank" rel="noopener noreferrer"
+            class="group p-3.5 rounded-2xl bg-white hover:bg-amber-50/60 dark:bg-stone-800/70 dark:hover:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 transition flex items-start gap-3">
+            <span class="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 flex items-center justify-center text-base shrink-0">♾️</span>
+            <div class="min-w-0">
+              <p class="text-xs sm:text-sm font-bold text-stone-900 dark:text-white group-hover:text-amber-700 dark:group-hover:text-amber-300 transition">Kindle Unlimited →</p>
+              <p class="text-[11px] text-stone-500 dark:text-stone-400 leading-snug mt-0.5">Milhares de e-books para ler à vontade na Amazon</p>
+            </div>
+          </a>
+
+          <a id="hub-link-audible" href="https://www.amazon.com.br/hz/audible/mlp?tag=qualquercoi05-20" target="_blank" rel="noopener noreferrer"
+            class="group p-3.5 rounded-2xl bg-white hover:bg-amber-50/60 dark:bg-stone-800/70 dark:hover:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 transition flex items-start gap-3">
+            <span class="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 flex items-center justify-center text-base shrink-0">🎧</span>
+            <div class="min-w-0">
+              <p class="text-xs sm:text-sm font-bold text-stone-900 dark:text-white group-hover:text-amber-700 dark:group-hover:text-amber-300 transition">Audible Audiolivros →</p>
+              <p class="text-[11px] text-stone-500 dark:text-stone-400 leading-snug mt-0.5">Ouça livros narrados no trânsito, caminhada ou descanso</p>
+            </div>
+          </a>
+
+          <a id="hub-link-kindle-devices" href="https://www.amazon.com.br/s?k=Kindle+Paperwhite+e-reader+capas&tag=qualquercoi05-20" target="_blank" rel="noopener noreferrer"
+            class="group p-3.5 rounded-2xl bg-white hover:bg-amber-50/60 dark:bg-stone-800/70 dark:hover:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80 transition flex items-start gap-3">
+            <span class="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 flex items-center justify-center text-base shrink-0">📱</span>
+            <div class="min-w-0">
+              <p class="text-xs sm:text-sm font-bold text-stone-900 dark:text-white group-hover:text-amber-700 dark:group-hover:text-amber-300 transition">Leitores Kindle &amp; Capas →</p>
+              <p class="text-[11px] text-stone-500 dark:text-stone-400 leading-snug mt-0.5">Kindle 11ª Geração, Paperwhite e acessórios oficiais</p>
+            </div>
+          </a>
+        </div>
       </div>
 
       <!-- Rodapé discreto de transparência de afiliados -->
@@ -784,6 +870,20 @@
             </div>
           </div>
 
+          <div>
+            <label for="cfg-reading-setup" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">📱 Meu Estilo / Setup de Leitura (Selo opcional no Perfil)</label>
+            <select id="cfg-reading-setup"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40">
+              <option value="">Não exibir selo no perfil</option>
+              <option value="kindle_paperwhite">📱 Meu Setup: Kindle Paperwhite</option>
+              <option value="kindle_11">📱 Meu Setup: Kindle 11ª Geração</option>
+              <option value="physical_and_kindle">📖 Leio em Livro Físico &amp; Kindle</option>
+              <option value="kindle_unlimited">♾️ Assinante Kindle Unlimited</option>
+              <option value="audible">🎧 Ouço Audiobooks (Audible)</option>
+              <option value="physical">📚 Fã de Livros Físicos</option>
+            </select>
+          </div>
+
           <div class="flex justify-end">
             <button type="submit"
               class="px-6 py-2.5 rounded-xl bg-forest-600 hover:bg-forest-700 text-white text-sm font-semibold shadow-sm transition flex items-center gap-2">
@@ -955,6 +1055,20 @@
                 <span>➕</span>
                 <span>Quero Ler na Minha Estante</span>
               </button>
+            </div>
+
+            <!-- Formatos Digitais (Kindle E-book & Audiobook Audible) -->
+            <div class="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+              <a id="modal-book-kindle-btn" href="#" target="_blank" rel="noopener noreferrer"
+                class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-800/60 text-xs font-semibold transition">
+                <span>📱</span>
+                <span>Ler no Kindle / E-book</span>
+              </a>
+              <a id="modal-book-audible-btn" href="#" target="_blank" rel="noopener noreferrer"
+                class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-paper-100 hover:bg-amber-50 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 border border-paper-200 dark:border-stone-700 text-xs font-semibold transition">
+                <span>🎧</span>
+                <span>Ouvir Audiobook (Audible)</span>
+              </a>
             </div>
           </div>
         </div>
@@ -1195,6 +1309,20 @@
             <label for="signup-instagram" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Link do Instagram (opcional)</label>
             <input id="signup-instagram" type="url" placeholder="https://instagram.com/seuusuario"
               class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40" />
+          </div>
+
+          <div>
+            <label for="signup-reading-setup" class="block text-xs font-semibold text-stone-600 dark:text-stone-300 mb-1">Como você prefere ler? (opcional)</label>
+            <select id="signup-reading-setup"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/40">
+              <option value="">Escolher depois</option>
+              <option value="kindle_paperwhite">📱 Kindle Paperwhite</option>
+              <option value="kindle_11">📱 Kindle 11ª Geração</option>
+              <option value="physical_and_kindle">📖 Livro Físico &amp; Kindle</option>
+              <option value="kindle_unlimited">♾️ Assinante Kindle Unlimited</option>
+              <option value="audible">🎧 Audiobooks (Audible)</option>
+              <option value="physical">📚 Livros Físicos</option>
+            </select>
           </div>
 
           <button id="btn-auth-signup-submit" type="submit"

@@ -253,6 +253,7 @@ function createDemoAccount() {
       bio: 'Criadora literária & apaixonada por ficção contemporânea, thrillers psicológicos e literatura brasileira. Todos os meus livros e indicações em um só lugar.',
       avatarUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=300&q=80',
       instagramUrl: 'https://instagram.com/leitoracriativa',
+      readingSetup: 'kindle_paperwhite',
       following: ['marileituras', 'biaentrepaginas']
     },
     clubs: [
@@ -357,6 +358,7 @@ function createDefaultCommunityAccounts() {
       bio: 'Apaixonada por literatura brasileira, poesia e clubes de leitura coletivos. Sempre com um livro nacional na bolsa.',
       avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
       instagramUrl: 'https://instagram.com/marileituras',
+      readingSetup: 'physical_and_kindle',
       following: ['leitoracriativa', 'lucas.books']
     },
     clubs: [
@@ -417,6 +419,7 @@ function createDefaultCommunityAccounts() {
       bio: 'Leitor voraz de ficção científica, fantasia épica e não-ficção. Resenhas diretas ao ponto e indicações semanais.',
       avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80',
       instagramUrl: 'https://instagram.com/lucas.books',
+      readingSetup: 'kindle_unlimited',
       following: ['leitoracriativa', 'marileituras']
     },
     clubs: [
@@ -477,6 +480,7 @@ function createDefaultCommunityAccounts() {
       bio: 'Curadora de romances históricos, suspense policial e thrillers psicológicos de tirar o fôlego.',
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
       instagramUrl: 'https://instagram.com/biaentrepaginas',
+      readingSetup: 'audible',
       following: ['leitoracriativa', 'marileituras']
     },
     clubs: [
@@ -1434,6 +1438,105 @@ function buildAmazonUrl(book) {
   return `https://www.amazon.com.br/s?k=${encodeURIComponent(query)}&tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
 }
 
+function buildAmazonKindleBookUrl(book) {
+  const query = [book?.title, book?.author].filter(Boolean).join(' ').trim() || book?.isbn || book?.asin || 'ebook kindle';
+  return `https://www.amazon.com.br/s?k=${encodeURIComponent(`${query} eBook Kindle`)}&i=digital-text&tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+}
+
+function buildAmazonAudibleBookUrl(book) {
+  const query = [book?.title, book?.author].filter(Boolean).join(' ').trim() || book?.isbn || book?.asin || 'audiobook';
+  return `https://www.amazon.com.br/s?k=${encodeURIComponent(`${query} audiobook Audible`)}&tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+}
+
+function buildAmazonKindleUnlimitedUrl() {
+  return `https://www.amazon.com.br/kindle-dbs/hz/subscribe/ku?tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+}
+
+function buildAmazonAudibleHomeUrl() {
+  return `https://www.amazon.com.br/hz/audible/mlp?tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+}
+
+function buildAmazonKindleDevicesUrl() {
+  return `https://www.amazon.com.br/s?k=Kindle+Paperwhite+e-reader+capas&tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+}
+
+function buildAmazonBlackFridayMainUrl() {
+  return `https://www.amazon.com.br/blackfriday?tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+}
+
+function buildAmazonBlackFridayBooksUrl() {
+  return `https://www.amazon.com.br/s?k=ofertas+livros+box+black+friday&i=stripbooks&tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+}
+
+function buildAmazonBlackFridayKindleUrl() {
+  return `https://www.amazon.com.br/s?k=Kindle+Paperwhite+e-reader+oferta&tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+}
+
+const READING_SETUPS = {
+  kindle_paperwhite: {
+    emoji: '📱',
+    label: 'Meu Setup: Kindle Paperwhite',
+    shortLabel: '📱 Kindle Paperwhite',
+    query: 'Kindle Paperwhite Amazon'
+  },
+  kindle_11: {
+    emoji: '📱',
+    label: 'Meu Setup: Kindle 11ª Geração',
+    shortLabel: '📱 Kindle 11ª Geração',
+    query: 'Kindle 11 geracao Amazon'
+  },
+  physical_and_kindle: {
+    emoji: '📖',
+    label: 'Leio em Livro Físico & Kindle',
+    shortLabel: '📖 Físico & Kindle',
+    query: 'Kindle e-reader capas leitura'
+  },
+  kindle_unlimited: {
+    emoji: '♾️',
+    label: 'Leio no Kindle Unlimited',
+    shortLabel: '♾️ Kindle Unlimited',
+    urlType: 'ku'
+  },
+  audible: {
+    emoji: '🎧',
+    label: 'Ouço Audiobooks (Audible)',
+    shortLabel: '🎧 Audiobooks',
+    urlType: 'audible'
+  },
+  physical: {
+    emoji: '📚',
+    label: 'Fã de Livros Físicos',
+    shortLabel: '📚 Livros Físicos',
+    query: 'livros mais vendidos marcadores de pagina'
+  }
+};
+
+function sanitizeReadingSetupKey(rawKey) {
+  const key = String(rawKey || '').trim();
+  return Object.prototype.hasOwnProperty.call(READING_SETUPS, key) ? key : '';
+}
+
+function getReadingSetupMeta(setupKey) {
+  const cleanKey = sanitizeReadingSetupKey(setupKey);
+  if (!cleanKey) return null;
+  const spec = READING_SETUPS[cleanKey];
+  let href = '';
+  if (spec.urlType === 'ku') {
+    href = buildAmazonKindleUnlimitedUrl();
+  } else if (spec.urlType === 'audible') {
+    href = buildAmazonAudibleHomeUrl();
+  } else {
+    href = `https://www.amazon.com.br/s?k=${encodeURIComponent(spec.query || 'Kindle Amazon')}&tag=${encodeURIComponent(PLATFORM_AMAZON_TAG)}`;
+  }
+  return {
+    key: cleanKey,
+    emoji: spec.emoji,
+    label: spec.label,
+    shortLabel: spec.shortLabel,
+    href
+  };
+}
+
 function normalizeUsername(raw) {
   return String(raw || '')
     .trim()
@@ -1452,6 +1555,7 @@ function sanitizeProfile(profile = {}, fallback = {}) {
       .map((u) => normalizeUsername(u))
       .filter((u) => u && u !== username)
   )];
+  const readingSetup = sanitizeReadingSetupKey(profile.readingSetup ?? fallback.readingSetup ?? '');
 
   return {
     name: String(profile.name ?? fallback.name ?? 'Leitor(a)').trim() || 'Leitor(a)',
@@ -1459,6 +1563,7 @@ function sanitizeProfile(profile = {}, fallback = {}) {
     bio: String(profile.bio ?? fallback.bio ?? ''),
     avatarUrl: String(profile.avatarUrl ?? fallback.avatarUrl ?? ''),
     instagramUrl: String(profile.instagramUrl ?? fallback.instagramUrl ?? ''),
+    readingSetup,
     following
   };
 }
@@ -1577,10 +1682,16 @@ function findLocalAccountByIdentifier(identifier) {
 
 function loadAccountIntoWorkingState(account) {
   if (!account) return;
-  const profile = sanitizeProfile(account.profile);
   const unpacked = unpackClubsAndAccountMeta(account.clubs || []);
+  const profile = sanitizeProfile(account.profile, {
+    following: unpacked.following,
+    readingSetup: unpacked.readingSetup
+  });
   if (unpacked.following.length > 0 && profile.following.length === 0) {
     profile.following = unpacked.following;
+  }
+  if (!profile.readingSetup && unpacked.readingSetup) {
+    profile.readingSetup = unpacked.readingSetup;
   }
   appState.profile = { ...profile };
   appState.clubs = unpacked.clubs.map((c) => ({ ...c }));
@@ -1596,6 +1707,7 @@ function commitWorkingStateToOwnerAccount() {
   const existingFollowing = account?.profile?.following || [];
   const mergedProfileInput = {
     ...appState.profile,
+    readingSetup: appState.profile?.readingSetup ?? account?.profile?.readingSetup ?? '',
     following: Array.isArray(appState.profile?.following) && appState.profile.following.length > 0
       ? appState.profile.following
       : existingFollowing
@@ -1634,7 +1746,10 @@ function loadState() {
       if (Array.isArray(parsed.accounts) && parsed.accounts.length > 0) {
         accounts = parsed.accounts.map((acc) => {
           const unpacked = unpackClubsAndAccountMeta(acc.clubs || []);
-          const prof = sanitizeProfile(acc.profile, { following: unpacked.following });
+          const prof = sanitizeProfile(acc.profile, {
+            following: unpacked.following,
+            readingSetup: unpacked.readingSetup
+          });
           return {
             userId: acc.userId || generateId('usr'),
             email: acc.email || '',
@@ -1807,9 +1922,11 @@ function packClubsWithAccountMeta(clubs = [], profile = {}, passwordHash = '') {
   const following = Array.isArray(profile?.following)
     ? [...new Set(profile.following.map(normalizeUsername).filter(Boolean))]
     : [];
+  const readingSetup = sanitizeReadingSetupKey(profile?.readingSetup);
   const meta = {
     _meta: 'nme_account_meta',
     following,
+    ...(readingSetup ? { readingSetup } : {}),
     ...(passwordHash ? { passwordHash } : {})
   };
   return [...cleanClubs, meta];
@@ -1819,12 +1936,16 @@ function unpackClubsAndAccountMeta(rawClubs = []) {
   const list = Array.isArray(rawClubs) ? rawClubs : [];
   const clubs = [];
   let following = [];
+  let readingSetup = '';
   let passwordHash = '';
 
   for (const item of list) {
     if (item && item._meta === 'nme_account_meta') {
       if (Array.isArray(item.following)) {
         following = [...new Set(item.following.map((u) => normalizeUsername(u)).filter(Boolean))];
+      }
+      if (item.readingSetup) {
+        readingSetup = sanitizeReadingSetupKey(item.readingSetup);
       }
       if (item.passwordHash) {
         passwordHash = String(item.passwordHash);
@@ -1834,7 +1955,7 @@ function unpackClubsAndAccountMeta(rawClubs = []) {
     }
   }
 
-  return { clubs, following, passwordHash };
+  return { clubs, following, readingSetup, passwordHash };
 }
 
 function toDbProfile(profile, clubs, userId, email = '', passwordHash = '') {
@@ -2165,6 +2286,7 @@ window.pullFromSupabase = async function ({ silent = false, targetUsername = nul
             bio: p.bio,
             avatarUrl: p.avatar_url,
             instagramUrl: p.instagram_url,
+            readingSetup: unpacked.readingSetup,
             following: unpacked.following
           }),
           clubs: unpacked.clubs,
@@ -2460,6 +2582,7 @@ window.handleAuthLogin = async function (event) {
           bio: profileRow.bio,
           avatarUrl: profileRow.avatar_url,
           instagramUrl: profileRow.instagram_url,
+          readingSetup: rowMeta?.readingSetup || localAcc?.profile?.readingSetup || '',
           following: rowMeta?.following || localAcc?.profile?.following || []
         });
         clubsArr = rowMeta?.clubs || [];
@@ -2569,6 +2692,7 @@ window.handleAuthSignup = async function (event) {
   const password = document.getElementById('signup-password').value;
   const bio = document.getElementById('signup-bio').value.trim();
   const instagramUrl = document.getElementById('signup-instagram').value.trim();
+  const readingSetup = sanitizeReadingSetupKey(document.getElementById('signup-reading-setup')?.value || '');
 
   if (!name || !username || username.length < 2) {
     showToast('Escolha um @username válido com pelo menos 2 caracteres (letras/números).', '⚠️');
@@ -2629,6 +2753,7 @@ window.handleAuthSignup = async function (event) {
         bio,
         avatarUrl: '',
         instagramUrl,
+        readingSetup,
         following: inheritedFollowing
       });
 
@@ -2704,6 +2829,7 @@ window.handleAuthSignup = async function (event) {
         bio,
         avatarUrl: '',
         instagramUrl,
+        readingSetup,
         following: inheritedFollowing
       }),
       clubs: [],
@@ -3133,6 +3259,19 @@ function renderPublicProfile() {
   if (followingEl) followingEl.textContent = String(followingCount);
   if (booksCountEl) booksCountEl.textContent = String(booksTotalCount);
   if (booksLabelEl) booksLabelEl.textContent = booksTotalCount === 1 ? 'livro' : 'livros';
+
+  const setupBadgeEl = document.getElementById('profile-reading-setup-badge');
+  if (setupBadgeEl) {
+    const setupMeta = getReadingSetupMeta(p.readingSetup);
+    if (setupMeta) {
+      setupBadgeEl.href = setupMeta.href;
+      setupBadgeEl.innerHTML = `<span>${escapeHtml(setupMeta.label)}</span><span class="opacity-70">↗</span>`;
+      setupBadgeEl.classList.remove('hidden');
+    } else {
+      setupBadgeEl.classList.add('hidden');
+      setupBadgeEl.href = '#';
+    }
+  }
 
   const followBtn = document.getElementById('btn-follow-active-profile');
   if (followBtn) {
@@ -3959,9 +4098,27 @@ window.selectPublicProfile = function (username, options = {}) {
   }
 };
 
+function renderDigitalReadingHubLinks() {
+  const kuEl = document.getElementById('hub-link-kindle-unlimited');
+  const audibleEl = document.getElementById('hub-link-audible');
+  const devicesEl = document.getElementById('hub-link-kindle-devices');
+  const topBfEl = document.getElementById('top-black-friday-pill');
+  const bfBooksEl = document.getElementById('bf-link-books');
+  const bfKindleEl = document.getElementById('bf-link-kindle');
+  const bfMainEl = document.getElementById('bf-link-main');
+  if (kuEl) kuEl.href = buildAmazonKindleUnlimitedUrl();
+  if (audibleEl) audibleEl.href = buildAmazonAudibleHomeUrl();
+  if (devicesEl) devicesEl.href = buildAmazonKindleDevicesUrl();
+  if (topBfEl) topBfEl.href = buildAmazonBlackFridayMainUrl();
+  if (bfBooksEl) bfBooksEl.href = buildAmazonBlackFridayBooksUrl();
+  if (bfKindleEl) bfKindleEl.href = buildAmazonBlackFridayKindleUrl();
+  if (bfMainEl) bfMainEl.href = buildAmazonBlackFridayMainUrl();
+}
+
 function renderPublicShelf() {
   renderPublicProfilesDirectory();
   renderPublicProfile();
+  renderDigitalReadingHubLinks();
 
   const allBooks = appState.books || [];
   const counts = {
@@ -4245,6 +4402,10 @@ window.openBookModal = function (bookId) {
   metaEl.innerHTML = metaItems.join('');
 
   document.getElementById('modal-book-amazon-btn').href = buildAmazonUrl(book);
+  const modalKindleEl = document.getElementById('modal-book-kindle-btn');
+  const modalAudibleEl = document.getElementById('modal-book-audible-btn');
+  if (modalKindleEl) modalKindleEl.href = buildAmazonKindleBookUrl(book);
+  if (modalAudibleEl) modalAudibleEl.href = buildAmazonAudibleBookUrl(book);
   updateModalCopyBookButton(book);
 
   const reviewBox = document.getElementById('modal-book-review-box');
@@ -5617,6 +5778,8 @@ function populateAdminProfileForm() {
   document.getElementById('cfg-bio').value = p.bio || '';
   document.getElementById('cfg-avatar').value = p.avatarUrl || '';
   document.getElementById('cfg-instagram').value = p.instagramUrl || '';
+  const cfgSetupEl = document.getElementById('cfg-reading-setup');
+  if (cfgSetupEl) cfgSetupEl.value = sanitizeReadingSetupKey(p.readingSetup || '');
   updateProfileAvatarPreview(p.avatarUrl || '');
 }
 
@@ -5723,6 +5886,7 @@ window.handleSaveProfile = async function (event) {
     bio: document.getElementById('cfg-bio').value.trim(),
     avatarUrl: document.getElementById('cfg-avatar').value.trim(),
     instagramUrl: document.getElementById('cfg-instagram').value.trim(),
+    readingSetup: document.getElementById('cfg-reading-setup')?.value || '',
     following: appState.profile?.following || []
   });
 
@@ -5880,7 +6044,10 @@ window.importBackupJson = function (event) {
             email: acc.email || '',
             password: acc.passwordHash ? '' : (acc.password || ''),
             passwordHash: acc.passwordHash || unpacked.passwordHash || '',
-            profile: sanitizeProfile(acc.profile, { following: unpacked.following }),
+            profile: sanitizeProfile(acc.profile, {
+              following: unpacked.following,
+              readingSetup: unpacked.readingSetup
+            }),
             clubs: unpacked.clubs,
             books: Array.isArray(acc.books) ? acc.books.map(sanitizeBook) : []
           };
